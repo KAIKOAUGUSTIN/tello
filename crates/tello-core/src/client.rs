@@ -2,7 +2,9 @@ use std::sync::Arc;
 
 use crate::blackbox::{Blackbox, Channel};
 use crate::control::Shared;
-use crate::{sdk, Action, Capabilities, Config, DroneEvent, Error, EventSink, Protocol, Safety, Sticks, Telemetry};
+use crate::{
+    app, sdk, Action, Capabilities, Config, DroneEvent, Error, EventSink, Protocol, Safety, Sticks, Telemetry,
+};
 
 /// Interface comum aos drivers de cada protocolo.
 pub(crate) trait Driver: Send + Sync {
@@ -34,7 +36,7 @@ impl Drone {
         let shared = Arc::new(Shared::new(sink, blackbox, config.safety.clone()));
         let driver: Box<dyn Driver> = match protocol {
             Protocol::Sdk => Box::new(sdk::driver::connect(&config, shared.clone())?),
-            Protocol::App => return Err(Error::NotSupported("protocolo do app ainda não implementado")),
+            Protocol::App => Box::new(app::driver::connect(&config, shared.clone())?),
         };
         let caps = driver.caps();
         shared.blackbox.info(Channel::Core, format!("conectado: {caps:?}"));

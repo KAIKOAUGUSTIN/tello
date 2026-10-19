@@ -8,6 +8,7 @@
 //! ações e sticks; tudo que chega do drone (telemetria, vídeo, avisos) é
 //! entregue pelo [`EventSink`].
 
+pub mod app;
 pub mod blackbox;
 mod client;
 pub mod config;
@@ -16,6 +17,7 @@ pub mod error;
 pub mod model;
 pub mod net;
 pub mod sdk;
+pub mod util;
 pub mod video;
 
 pub use blackbox::{Blackbox, Channel, Dir, Entry};

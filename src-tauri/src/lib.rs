@@ -39,8 +39,10 @@ async fn connect(
     app: AppHandle,
     state: State<'_, AppState>,
     protocol: Protocol,
-    config: Config,
+    mut config: Config,
 ) -> CmdResult<Capabilities> {
+    // Fotos em alta resolução (modo App) vão para Imagens/Tello Pilot.
+    config.photo_dir = media_dir(&app, "photos").ok();
     let old = state.drone.lock().unwrap().take();
     if let Some(old) = old {
         let _ = tauri::async_runtime::spawn_blocking(move || old.disconnect()).await;

@@ -11,8 +11,12 @@ use std::time::{Duration, Instant};
 
 use tello_core::NalAssembler;
 
+mod app;
+
 /// Vídeo de teste 960x720 a 30 fps (H.264 Main, gerado uma vez com ffmpeg).
 pub const FIXTURE_H264: &[u8] = include_bytes!("../fixtures/sample.h264");
+/// Foto de teste enviada no lugar da foto de 5 MP no modo App.
+pub const FIXTURE_JPEG: &[u8] = include_bytes!("../fixtures/photo.jpg");
 const VIDEO_CHUNK: usize = 1460;
 
 #[derive(Clone, Debug)]
@@ -49,7 +53,7 @@ impl Default for SimConfig {
 }
 
 #[derive(Clone, Debug)]
-struct State {
+pub(crate) struct State {
     sdk_mode: bool,
     client: Option<SocketAddr>,
     flying: bool,
@@ -62,9 +66,13 @@ struct State {
     rc: [i32; 4],
     motor_time_s: f32,
     auto_landed: bool,
+    /// Conectado pelo protocolo do app (conn_req) em vez do SDK.
+    app_mode: bool,
+    app_video_port: u16,
+    fast: bool,
 }
 
-struct Inner {
+pub(crate) struct Inner {
     cfg: SimConfig,
     sock: UdpSocket,
     running: AtomicBool,
@@ -104,6 +112,9 @@ impl Sim {
             rc: [0; 4],
             motor_time_s: 0.0,
             auto_landed: false,
+            app_mode: false,
+            app_video_port: 0,
+            fast: false,
         };
         let inner = Arc::new(Inner {
             cfg,
@@ -154,6 +165,14 @@ impl Sim {
         self.inner.state.lock().unwrap().streaming
     }
 
+    pub fn app_mode(&self) -> bool {
+        self.inner.state.lock().unwrap().app_mode
+    }
+
+    pub fn fast_mode(&self) -> bool {
+        self.inner.state.lock().unwrap().fast
+    }
+
     pub fn set_battery(&self, pct: u8) {
         self.inner.state.lock().unwrap().battery = pct as f32;
     }
@@ -200,8 +219,14 @@ impl Inner {
         let mut buf = [0u8; 2048];
         while self.running() {
             let Ok((n, from)) = self.sock.recv_from(&mut buf) else { continue };
-            let text = String::from_utf8_lossy(&buf[..n]).trim().to_string();
-            self.handle(&text, from);
+            let data = &buf[..n];
+            let app = self.state.lock().unwrap().app_mode;
+            if data.starts_with(b"conn_req:") || data.first() == Some(&0xcc) || (app && data == b"emergency") {
+                self.handle_app(data, from);
+            } else {
+                let text = String::from_utf8_lossy(data).trim().to_string();
+                self.handle(&text, from);
+            }
         }
     }
 
@@ -329,8 +354,10 @@ impl Inner {
             Err(_) => return,
         };
         let mut last = Instant::now();
+        let mut tick = 0u32;
         while self.running() {
             thread::sleep(Duration::from_millis(100));
+            tick = tick.wrapping_add(1);
             let dt = last.elapsed().as_secs_f32();
             last = Instant::now();
             let (text, client) = {
@@ -346,6 +373,12 @@ impl Inner {
                         s.height_cm = 0.0;
                         s.auto_landed = true;
                     }
+                }
+                if s.app_mode {
+                    let snapshot = s.clone();
+                    drop(s);
+                    self.app_telemetry(&snapshot, tick);
+                    continue;
                 }
                 (state_string(&s, self.cfg.sdk_version.is_some()), s.client)
             };
@@ -365,15 +398,26 @@ impl Inner {
         let frame_time = Duration::from_micros(33_333);
         let mut next = Instant::now();
         while self.running() {
-            let (streaming, client) = {
+            let (streaming, client, app, app_port) = {
                 let s = self.state.lock().unwrap();
-                (s.streaming, s.client)
+                (s.streaming, s.client, s.app_mode, s.app_video_port)
             };
             match (streaming, client) {
                 (true, Some(c)) if !frames.is_empty() => {
-                    let to = (c.ip(), self.cfg.video_port);
-                    for chunk in frames[i % frames.len()].chunks(VIDEO_CHUNK) {
-                        let _ = out.send_to(chunk, to);
+                    let frame = &frames[i % frames.len()];
+                    if app {
+                        // Modo App: cabeçalho de 2 bytes (frame, fragmento | 0x80 no último).
+                        let chunks: Vec<_> = frame.chunks(VIDEO_CHUNK - 2).collect();
+                        for (k, chunk) in chunks.iter().enumerate() {
+                            let last = if k + 1 == chunks.len() { 0x80 } else { 0 };
+                            let mut pkt = vec![i as u8, k as u8 | last];
+                            pkt.extend_from_slice(chunk);
+                            let _ = out.send_to(&pkt, (c.ip(), app_port));
+                        }
+                    } else {
+                        for chunk in frame.chunks(VIDEO_CHUNK) {
+                            let _ = out.send_to(chunk, (c.ip(), self.cfg.video_port));
+                        }
                     }
                     i += 1;
                     next += frame_time;

@@ -63,10 +63,12 @@
       <Icon name="timer" size={16} />
       <span class="num">{duration(t?.flight_time_s)}</span>
     </span>
-    <span class="chip" title="Temperatura">
-      <Icon name="thermometer" size={16} />
-      <span class="num">{num(t?.temp_high_c)}°</span>
-    </span>
+    {#if t?.temp_high_c != null}
+      <span class="chip" title="Temperatura">
+        <Icon name="thermometer" size={16} />
+        <span class="num">{num(t.temp_high_c)}°</span>
+      </span>
+    {/if}
   </div>
 
   <div class="spacer"></div>
