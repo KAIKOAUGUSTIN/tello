@@ -118,6 +118,26 @@ export async function snapshot(): Promise<void> {
   }
 }
 
+/** Liga/desliga a gravação do vídeo em MP4 (liga o vídeo se preciso). */
+export async function toggleRecording(): Promise<void> {
+  const backend = backendRef();
+  if (!backend || drone.conn !== 'connected') return;
+  try {
+    if (drone.recording) {
+      const r = await backend.stopRecording();
+      drone.recording = null;
+      toast('ok', `Vídeo salvo (${r.seconds.toFixed(0)} s)`, r.path);
+    } else {
+      if (!drone.videoOn) await startVideo();
+      const path = await backend.startRecording(stamp());
+      drone.recording = { since: performance.now(), path };
+    }
+  } catch (e) {
+    drone.recording = null;
+    toast('error', 'Gravação falhou', errorText(e));
+  }
+}
+
 /** Foto: em alta resolução no modo App, captura do vídeo no SDK. */
 export function photo(): void {
   if (drone.caps?.hi_res_photo) void run({ type: 'take_photo' });

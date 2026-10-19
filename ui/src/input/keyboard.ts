@@ -5,7 +5,7 @@ import { settings } from '../lib/settings.svelte';
 import { report } from './mixer.svelte';
 import { toDrone, type Axis2 } from './mapping';
 
-export type Shortcut = 'takeoff' | 'land' | 'stop' | 'photo' | 'emergency';
+export type Shortcut = 'takeoff' | 'land' | 'stop' | 'photo' | 'record' | 'emergency';
 
 const RAMP_PER_S = 3.5;
 
@@ -52,6 +52,9 @@ export function startKeyboard(onShortcut: (s: Shortcut, holdStart: boolean) => v
         break;
       case 'KeyP':
         onShortcut('photo', true);
+        break;
+      case 'KeyR':
+        onShortcut('record', true);
         break;
       case 'Escape': {
         // Esc duas vezes em menos de 1 s = emergência.

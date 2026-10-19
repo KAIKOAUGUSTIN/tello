@@ -120,13 +120,14 @@
           <dt>T (segurar)</dt><dd>Decolar</dd>
           <dt>L</dt><dd>Pousar</dd>
           <dt>Espaço</dt><dd>Pairar</dd>
-          <dt>P</dt><dd>Foto</dd>
+          <dt>P · R</dt><dd>Foto · gravar vídeo</dd>
           <dt>Esc Esc</dt><dd>Emergência</dd>
         </dl>
         <dl class="keys">
           <dt>Menu (segurar)</dt><dd>Decolar · no ar: pousar</dd>
           <dt>View + Menu</dt><dd>Emergência</dd>
-          <dt>A · B · Y</dt><dd>Foto · pairar · modo rápido</dd>
+          <dt>A · X</dt><dd>Foto · gravar vídeo</dd>
+          <dt>B · Y</dt><dd>Pairar · modo rápido</dd>
           <dt>LB + D-pad</dt><dd>Flips (duas direções = diagonal)</dd>
           <dt>RB</dt><dd>Throw & Go · no ar: pouso na palma</dd>
         </dl>

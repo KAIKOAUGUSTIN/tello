@@ -8,7 +8,7 @@
 pub struct VideoFrame {
     /// Access unit completa em Annex B (com start codes de 4 bytes).
     pub data: Vec<u8>,
-    /// Contém um IDR: o decodificador pode começar daqui.
+    /// Contém um IDR (ou SPS + fatia intra): o decodificador pode começar daqui.
     pub keyframe: bool,
     /// Contém SPS/PPS.
     pub has_sps: bool,
@@ -32,6 +32,7 @@ pub struct NalAssembler {
     au_has_vcl: bool,
     au_key: bool,
     au_sps: bool,
+    au_intra: bool,
     /// Descarta frames até chegar um keyframe (início ou após perda).
     waiting_key: bool,
     seq: u64,
@@ -128,6 +129,7 @@ impl NalAssembler {
         self.au_has_vcl |= is_vcl;
         self.au_key |= kind == NAL_IDR;
         self.au_sps |= kind == NAL_SPS;
+        self.au_intra |= kind == NAL_SLICE && slice_is_intra(nal);
     }
 
     fn finish_au(&mut self, out: &mut Vec<VideoFrame>) {
@@ -135,19 +137,16 @@ impl NalAssembler {
             // Só parâmetros (SPS/PPS) até agora: continuam no próximo frame.
             return;
         }
-        if self.waiting_key && !self.au_key {
+        // Alguns codificadores mandam I-frames sem marcação IDR: SPS + fatia intra também serve.
+        let key = self.au_key || (self.au_sps && self.au_intra);
+        if self.waiting_key && !key {
             self.dropped += 1;
             self.clear_au();
             return;
         }
         self.waiting_key = false;
         self.seq += 1;
-        out.push(VideoFrame {
-            data: std::mem::take(&mut self.au),
-            keyframe: self.au_key,
-            has_sps: self.au_sps,
-            seq: self.seq,
-        });
+        out.push(VideoFrame { data: std::mem::take(&mut self.au), keyframe: key, has_sps: self.au_sps, seq: self.seq });
         self.clear_au();
     }
 
@@ -156,7 +155,15 @@ impl NalAssembler {
         self.au_has_vcl = false;
         self.au_key = false;
         self.au_sps = false;
+        self.au_intra = false;
     }
+}
+
+/// Fatia I ou SI: lê `first_mb_in_slice` e `slice_type` do cabeçalho.
+fn slice_is_intra(nal: &[u8]) -> bool {
+    let head = remove_emulation_prevention(&nal[1..nal.len().min(16)]);
+    let mut r = BitReader::new(&head);
+    r.ue().is_some() && matches!(r.ue(), Some(2 | 4 | 7 | 9))
 }
 
 /// Posição do próximo start code (3 ou 4 bytes) a partir de `from`.
@@ -456,6 +463,24 @@ mod tests {
         let mut more = asm.push(&nal(NAL_SLICE, true, 50));
         more.extend(asm.flush());
         assert!(more.is_empty());
+    }
+
+    #[test]
+    fn sps_with_intra_slice_counts_as_keyframe() {
+        // Sem IDR: SPS + PPS + fatia I (0x88 = first_mb 0, slice_type 7), depois fatia P (0xc0).
+        let mut s = nal(NAL_SPS, true, 10);
+        s.extend(nal(NAL_PPS, true, 4));
+        s.extend(nal(NAL_SLICE, true, 300));
+        let mut p_slice = vec![0, 0, 0, 1, 0x41, 0xc0];
+        p_slice.extend([7u8; 50]);
+        s.extend(&p_slice);
+        let mut asm = NalAssembler::new();
+        let mut frames = asm.push(&p_slice); // P antes de qualquer keyframe: descartado
+        frames.extend(asm.push(&s));
+        frames.extend(asm.flush());
+        assert_eq!(frames.len(), 2);
+        assert!(frames[0].keyframe && !frames[1].keyframe);
+        assert_eq!(asm.dropped(), 1);
     }
 
     #[test]

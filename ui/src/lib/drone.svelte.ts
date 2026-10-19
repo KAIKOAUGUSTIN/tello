@@ -21,6 +21,8 @@ interface DroneState {
   noState: boolean;
   noVideo: boolean;
   confirmClose: boolean;
+  /** Gravação em andamento (início em performance.now()). */
+  recording: { since: number; path: string } | null;
 }
 
 export const drone: DroneState = $state({
@@ -35,6 +37,7 @@ export const drone: DroneState = $state({
   noState: false,
   noVideo: false,
   confirmClose: false,
+  recording: null,
 });
 
 let backend: Backend | null = null;
@@ -80,6 +83,7 @@ function handleEvent(e: DroneEvent): void {
       drone.conn = 'disconnected';
       drone.caps = null;
       drone.videoOn = false;
+      drone.recording = null;
       break;
     case 'connected':
       drone.caps = e.caps;
@@ -140,6 +144,7 @@ export async function disconnect(): Promise<void> {
   drone.conn = 'disconnected';
   drone.caps = null;
   drone.videoOn = false;
+  drone.recording = null;
 }
 
 export async function startVideo(): Promise<void> {

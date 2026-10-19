@@ -15,6 +15,7 @@ pub mod config;
 mod control;
 pub mod error;
 pub mod model;
+pub mod mp4;
 pub mod net;
 pub mod sdk;
 pub mod util;

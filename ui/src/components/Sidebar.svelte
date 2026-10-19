@@ -9,8 +9,10 @@
     photo,
     throwAndGo,
     toggleFastMode,
+    toggleRecording,
     toggleVideo,
   } from '../lib/commands.svelte';
+  import { elapsed } from '../lib/clock.svelte';
   import { applySafety, backendRef, drone, isFlying, run } from '../lib/drone.svelte';
   import { BEGINNER, saveSettings, settings } from '../lib/settings.svelte';
   import type { SmartVideo } from '../lib/types';
@@ -118,10 +120,22 @@
       <button class="btn" onclick={photo} title="P no teclado · A no controle">
         <Icon name="camera" size={16} /> {caps?.hi_res_photo ? 'Foto 5 MP' : 'Capturar'}
       </button>
+      <button class="btn rec" class:recording={!!drone.recording} onclick={toggleRecording} title="Grava o vídeo em MP4 (R · X no controle)">
+        {#if drone.recording}
+          <span class="rec-dot"></span> <span class="num">{elapsed(drone.recording.since)}</span>
+        {:else}
+          <Icon name="circle-dot" size={16} /> Gravar
+        {/if}
+      </button>
+    </div>
+    <div class="row">
       <button class="btn" class:on={drone.videoOn} onclick={toggleVideo}>
         <Icon name="video" size={16} /> {drone.videoOn ? 'Vídeo on' : 'Vídeo off'}
       </button>
       <button class="btn icon" title="Abrir pasta de fotos" onclick={() => backendRef()?.openFolder('photos')}>
+        <Icon name="camera" size={16} />
+      </button>
+      <button class="btn icon" title="Abrir pasta de vídeos" onclick={() => backendRef()?.openFolder('videos')}>
         <Icon name="folder-open" size={16} />
       </button>
     </div>
@@ -234,6 +248,26 @@
   .btn.on {
     border-color: rgb(52 211 153 / 0.45);
     color: var(--ok);
+  }
+
+  .btn.rec.recording {
+    border-color: rgb(244 63 94 / 0.55);
+    background: rgb(244 63 94 / 0.14);
+    color: var(--danger);
+  }
+
+  .rec-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: var(--danger);
+    animation: pulse 1.2s ease-in-out infinite;
+  }
+
+  @keyframes pulse {
+    50% {
+      opacity: 0.35;
+    }
   }
 
   .grid3 {

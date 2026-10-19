@@ -132,6 +132,12 @@ export interface NetworkCheck {
   same_subnet: boolean;
 }
 
+export interface RecordingResult {
+  path: string;
+  frames: number;
+  seconds: number;
+}
+
 export interface VideoPacket {
   data: Uint8Array;
   key: boolean;

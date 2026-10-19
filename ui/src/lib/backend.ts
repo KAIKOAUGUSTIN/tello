@@ -6,6 +6,7 @@ import type {
   LogEntry,
   NetworkCheck,
   Protocol,
+  RecordingResult,
   Safety,
   Sticks,
   VideoPacket,
@@ -30,6 +31,9 @@ export interface Backend {
   logSnapshot(): Promise<LogEntry[]>;
   exportLog(stamp: string): Promise<string>;
   saveSnapshot(png: Uint8Array, stamp: string): Promise<string>;
+  /** Começa a gravar o vídeo em MP4; devolve o caminho do arquivo. */
+  startRecording(stamp: string): Promise<string>;
+  stopRecording(): Promise<RecordingResult>;
   openFolder(kind: FolderKind): Promise<void>;
   landAndQuit(): Promise<void>;
 }

@@ -11,6 +11,7 @@ import type {
   LogEntry,
   NetworkCheck,
   Protocol,
+  RecordingResult,
   Safety,
   Sticks,
   Telemetry,
@@ -207,6 +208,18 @@ export class MockBackend implements Backend {
 
   async saveSnapshot(_png: Uint8Array, stamp: string): Promise<string> {
     return `Imagens/Tello Pilot/tello-${stamp}.png (simulado)`;
+  }
+
+  private recordingSince = 0;
+
+  async startRecording(stamp: string): Promise<string> {
+    this.recordingSince = performance.now();
+    return `Vídeos/Tello Pilot/tello-video-${stamp}.mp4 (simulado)`;
+  }
+
+  async stopRecording(): Promise<RecordingResult> {
+    const seconds = (performance.now() - this.recordingSince) / 1000;
+    return { path: 'Vídeos/Tello Pilot/tello-video.mp4 (simulado)', frames: Math.round(seconds * 30), seconds };
   }
 
   async openFolder(_kind: FolderKind): Promise<void> {}

@@ -2,7 +2,7 @@
 //
 // Sticks (modo 2): esquerdo = altura/giro, direito = frente/lado.
 // Menu (segurar 1 s) = decolar · Menu no ar = pousar · View + Menu = emergência
-// A = foto · B = pairar · Y = modo rápido · LB + D-pad = flips (diagonais
+// A = foto · X = gravar · B = pairar · Y = modo rápido · LB + D-pad = flips (diagonais
 // apertando duas direções) · RB = Throw & Go no chão / pouso na palma no ar.
 
 import {
@@ -16,6 +16,7 @@ import {
   photo,
   throwAndGo,
   toggleFastMode,
+  toggleRecording,
 } from '../lib/commands.svelte';
 import { isFlying, onLowBattery } from '../lib/drone.svelte';
 import { settings } from '../lib/settings.svelte';
@@ -97,6 +98,7 @@ function poll(): void {
   if (released(B.MENU)) endTakeoffHold();
 
   if (edge(B.A)) photo();
+  if (edge(B.X)) void toggleRecording();
   if (edge(B.B)) hover();
   if (edge(B.Y)) toggleFastMode();
   if (edge(B.RB)) (isFlying() ? palmLand : throwAndGo)();

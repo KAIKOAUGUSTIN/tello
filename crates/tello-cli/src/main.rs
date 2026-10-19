@@ -10,8 +10,9 @@ use std::sync::{Arc, Mutex};
 use std::thread::sleep;
 use std::time::{Duration, Instant};
 
+use tello_core::mp4::Mp4Writer;
 use tello_core::net::check_network;
-use tello_core::video::{find_sps, parse_sps};
+use tello_core::video::{find_sps, nal_types, parse_sps};
 use tello_core::{Action, Config, Drone, DroneEvent, Protocol, Telemetry};
 
 const HELP: &str = "\
@@ -92,8 +93,9 @@ fn config(opts: &Options) -> Config {
 struct Collected {
     telemetry: Option<Telemetry>,
     warnings: Vec<String>,
-    video: Option<BufWriter<File>>,
+    video: Option<(Mp4Writer, Instant)>,
     sps: Option<String>,
+    nal_summary: Vec<String>,
 }
 
 fn diag(opts: &Options) -> bool {
@@ -144,8 +146,13 @@ fn diag(opts: &Options) -> bool {
                         ));
                     }
                 }
-                if let Some(w) = c.video.as_mut() {
-                    let _ = w.write_all(&f.data);
+                if c.nal_summary.len() < 6 {
+                    let types: Vec<String> = nal_types(&f.data).iter().map(|t| t.to_string()).collect();
+                    c.nal_summary.push(format!("[{}]{}", types.join(" "), if f.keyframe { "*" } else { "" }));
+                }
+                if let Some((w, start)) = c.video.as_mut() {
+                    let at = start.elapsed();
+                    let _ = w.write_frame(&f.data, f.keyframe, at);
                 }
             }
             _ => {}
@@ -197,10 +204,10 @@ fn diag(opts: &Options) -> bool {
     let state_ok = states > secs as usize * 3;
 
     // 4. Vídeo
-    let video_path = opts.out_dir.join(format!("tello-video-{stamp}.h264"));
+    let video_path = opts.out_dir.join(format!("tello-video-{stamp}.mp4"));
     println!("\n-- Vídeo por {secs} s --");
-    match File::create(&video_path) {
-        Ok(f) => collected.lock().unwrap().video = Some(BufWriter::new(f)),
+    match Mp4Writer::create(&video_path) {
+        Ok(w) => collected.lock().unwrap().video = Some((w, Instant::now())),
         Err(e) => println!("  não foi possível criar {}: {e}", video_path.display()),
     }
     let stream = drone.action(&Action::StreamOn);
@@ -210,9 +217,8 @@ fn diag(opts: &Options) -> bool {
     sleep(Duration::from_secs(secs));
     let _ = drone.action(&Action::StreamOff);
     let mut c = collected.lock().unwrap();
-    if let Some(mut w) = c.video.take() {
-        let _ = w.flush();
-    }
+    let recording = c.video.take().map(|(w, _)| w.finish());
+    let nal_summary = c.nal_summary.join(" ");
     let sps = c.sps.clone();
     let warnings = c.warnings.clone();
     drop(c);
@@ -220,6 +226,9 @@ fn diag(opts: &Options) -> bool {
     let keyframes = keyframes.load(Ordering::Relaxed);
     let video_ok = frames > 0;
     println!("  {frames} frames recebidos ({keyframes} chave). {}", sps.as_deref().unwrap_or(""));
+    if !nal_summary.is_empty() {
+        println!("  tipos de NAL nos primeiros frames (* = chave): {nal_summary}");
+    }
 
     // 5. Log
     let log_path = opts.out_dir.join(format!("tello-log-{stamp}.jsonl"));
@@ -235,10 +244,14 @@ fn diag(opts: &Options) -> bool {
     for w in &warnings {
         println!("        aviso: {w}");
     }
-    if video_ok {
-        println!("\nVídeo salvo em {} (abra com o VLC).", video_path.display());
-    } else {
-        let _ = std::fs::remove_file(&video_path);
+    match recording {
+        Some(Ok(info)) => println!(
+            "\nVídeo salvo em {} ({} frames, {:.1} s).",
+            info.path.display(),
+            info.frames,
+            info.duration.as_secs_f32()
+        ),
+        _ => println!("\nNenhum vídeo gravado."),
     }
     match log_saved {
         Ok(()) => println!("Log salvo em {}. Envie este arquivo se algo deu errado.", log_path.display()),

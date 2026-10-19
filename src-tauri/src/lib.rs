@@ -6,22 +6,47 @@
 
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use tauri::ipc::{Channel, InvokeBody, InvokeResponseBody, Request};
 use tauri::{AppHandle, Emitter, Manager, State, WindowEvent};
+use tello_core::mp4::Mp4Writer;
 use tello_core::net::{self, NetworkCheck};
 use tello_core::{Action, Blackbox, Capabilities, Config, Drone, DroneEvent, Entry, Protocol, Safety, Sticks};
 
 type CmdResult<T> = Result<T, String>;
 type VideoChannel = Arc<Mutex<Option<Channel<InvokeResponseBody>>>>;
+type ActiveRecording = Arc<Mutex<Option<Recording>>>;
 
 const APP_DIR: &str = "Tello Pilot";
 
 struct AppState {
     drone: Mutex<Option<Arc<Drone>>>,
     video: VideoChannel,
+    recording: ActiveRecording,
     blackbox: Arc<Blackbox>,
+}
+
+struct Recording {
+    writer: Mp4Writer,
+    started: Instant,
+}
+
+#[derive(serde::Serialize)]
+struct RecordingResult {
+    path: String,
+    frames: usize,
+    seconds: f32,
+}
+
+fn finish_recording(recording: &ActiveRecording) -> CmdResult<RecordingResult> {
+    let rec = recording.lock().unwrap().take().ok_or("nenhuma gravação em andamento")?;
+    let info = rec.writer.finish().map_err(|e| e.to_string())?;
+    Ok(RecordingResult {
+        path: info.path.display().to_string(),
+        frames: info.frames,
+        seconds: info.duration.as_secs_f32(),
+    })
 }
 
 fn current(state: &AppState) -> CmdResult<Arc<Drone>> {
@@ -48,9 +73,13 @@ async fn connect(
         let _ = tauri::async_runtime::spawn_blocking(move || old.disconnect()).await;
     }
     let video = state.video.clone();
+    let recording = state.recording.clone();
     let emitter = app.clone();
     let sink = Arc::new(move |e: DroneEvent| match e {
         DroneEvent::Video(frame) => {
+            if let Some(rec) = recording.lock().unwrap().as_mut() {
+                let _ = rec.writer.write_frame(&frame.data, frame.keyframe, rec.started.elapsed());
+            }
             if let Some(ch) = video.lock().unwrap().as_ref() {
                 let mut buf = Vec::with_capacity(frame.data.len() + 5);
                 buf.push(frame.keyframe as u8 | (frame.has_sps as u8) << 1);
@@ -76,6 +105,7 @@ async fn connect(
 
 #[tauri::command]
 async fn disconnect(state: State<'_, AppState>) -> CmdResult<()> {
+    let _ = finish_recording(&state.recording);
     let drone = state.drone.lock().unwrap().take();
     if let Some(d) = drone {
         tauri::async_runtime::spawn_blocking(move || d.disconnect()).await.map_err(|e| e.to_string())?;
@@ -138,6 +168,23 @@ fn save_snapshot(app: AppHandle, request: Request<'_>) -> CmdResult<String> {
 }
 
 #[tauri::command]
+fn start_recording(app: AppHandle, state: State<'_, AppState>, stamp: String) -> CmdResult<String> {
+    let mut slot = state.recording.lock().unwrap();
+    if slot.is_some() {
+        return Err("já existe uma gravação em andamento".into());
+    }
+    let path = media_dir(&app, "videos")?.join(format!("tello-video-{}.mp4", sanitize(&stamp)));
+    let writer = Mp4Writer::create(&path).map_err(|e| e.to_string())?;
+    *slot = Some(Recording { writer, started: Instant::now() });
+    Ok(path.display().to_string())
+}
+
+#[tauri::command]
+fn stop_recording(state: State<'_, AppState>) -> CmdResult<RecordingResult> {
+    finish_recording(&state.recording)
+}
+
+#[tauri::command]
 fn open_folder(app: AppHandle, kind: String) -> CmdResult<()> {
     let dir = media_dir(&app, &kind)?;
     open_path(&dir).map_err(|e| e.to_string())
@@ -146,6 +193,7 @@ fn open_folder(app: AppHandle, kind: String) -> CmdResult<()> {
 /// Pousa (se estiver voando) e fecha o app.
 #[tauri::command]
 async fn land_and_quit(app: AppHandle, state: State<'_, AppState>) -> CmdResult<()> {
+    let _ = finish_recording(&state.recording);
     let drone = state.drone.lock().unwrap().take();
     if let Some(d) = drone {
         let _ = tauri::async_runtime::spawn_blocking(move || {
@@ -206,7 +254,7 @@ pub fn run() {
             }
         })));
     }
-    let state = AppState { drone: Mutex::new(None), video: Arc::default(), blackbox };
+    let state = AppState { drone: Mutex::new(None), video: Arc::default(), recording: Arc::default(), blackbox };
 
     tauri::Builder::default()
         .manage(state)
@@ -229,6 +277,9 @@ pub fn run() {
                     // A UI pergunta se deve pousar antes de sair.
                     api.prevent_close();
                     let _ = window.emit("confirm-close", ());
+                } else {
+                    // Fecha o MP4 para o arquivo ficar reproduzível.
+                    let _ = finish_recording(&state.recording);
                 }
             }
         })
@@ -243,6 +294,8 @@ pub fn run() {
             log_snapshot,
             export_log,
             save_snapshot,
+            start_recording,
+            stop_recording,
             open_folder,
             land_and_quit,
         ])

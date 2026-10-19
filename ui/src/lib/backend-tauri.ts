@@ -2,7 +2,7 @@ import { Channel, invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 
 import { decodeVideoPacket, Emitter, type Backend, type FolderKind } from './backend';
-import type { DroneEvent, LogEntry, Safety, Sticks, VideoPacket } from './types';
+import type { DroneEvent, LogEntry, RecordingResult, Safety, Sticks, VideoPacket } from './types';
 
 export async function createTauriBackend(): Promise<Backend> {
   const events = new Emitter<DroneEvent>();
@@ -36,6 +36,8 @@ export async function createTauriBackend(): Promise<Backend> {
     logSnapshot: () => invoke('log_snapshot'),
     exportLog: (stamp) => invoke('export_log', { stamp }),
     saveSnapshot: (png, stamp) => invoke('save_snapshot', png, { headers: { 'x-stamp': stamp } }),
+    startRecording: (stamp) => invoke('start_recording', { stamp }),
+    stopRecording: () => invoke<RecordingResult>('stop_recording'),
     openFolder: (kind: FolderKind) => invoke('open_folder', { kind }),
     landAndQuit: () => invoke('land_and_quit'),
   };

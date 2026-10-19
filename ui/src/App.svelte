@@ -7,7 +7,15 @@
   import Icon from './components/Icon.svelte';
   import SettingsDrawer from './components/SettingsDrawer.svelte';
   import Toasts from './components/Toasts.svelte';
-  import { beginTakeoffHold, emergency, endTakeoffHold, hover, land, photo } from './lib/commands.svelte';
+  import {
+    beginTakeoffHold,
+    emergency,
+    endTakeoffHold,
+    hover,
+    land,
+    photo,
+    toggleRecording,
+  } from './lib/commands.svelte';
   import { drone, initDrone, landAndQuit } from './lib/drone.svelte';
   import { startGamepad } from './input/gamepad';
   import { startKeyboard, type Shortcut } from './input/keyboard';
@@ -23,6 +31,7 @@
     if (s === 'land') land();
     if (s === 'stop') hover();
     if (s === 'photo') photo();
+    if (s === 'record') void toggleRecording();
     if (s === 'emergency') emergency();
   }
 

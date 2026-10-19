@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { elapsed } from '../lib/clock.svelte';
   import { hold } from '../lib/commands.svelte';
   import { drone, isFlying } from '../lib/drone.svelte';
   import { groundSpeed, meters, num } from '../lib/format';
@@ -37,6 +38,9 @@
       {#if drone.busy}<Icon name="refresh-ccw" size={14} class="spin" />{/if}
       {stateLabel}
     </span>
+    {#if drone.recording}
+      <span class="banner rec"><span class="dot"></span> REC <span class="num">{elapsed(drone.recording.since)}</span></span>
+    {/if}
     {#if !input.focused}
       <span class="banner warn"><Icon name="pause" size={14} /> Janela sem foco: sticks no centro, drone pairando</span>
     {/if}
@@ -171,6 +175,24 @@
 
   .banner.danger {
     color: var(--danger);
+  }
+
+  .banner.rec {
+    color: var(--danger);
+  }
+
+  .banner.rec .dot {
+    width: 9px;
+    height: 9px;
+    border-radius: 50%;
+    background: var(--danger);
+    animation: blink 1.2s ease-in-out infinite;
+  }
+
+  @keyframes blink {
+    50% {
+      opacity: 0.3;
+    }
   }
 
   .banner.info {
