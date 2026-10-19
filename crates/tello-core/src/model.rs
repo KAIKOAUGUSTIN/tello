@@ -1,0 +1,248 @@
+//! Tipos compartilhados entre os dois protocolos e a UI.
+
+use std::sync::Arc;
+
+use serde::{Deserialize, Serialize};
+
+use crate::video::VideoFrame;
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Protocol {
+    /// SDK oficial em texto.
+    #[default]
+    Sdk,
+    /// Protocolo binário do app oficial.
+    App,
+}
+
+/// Comandos de voo contínuos, cada eixo em -1.0..=1.0.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct Sticks {
+    /// Esquerda (-) / direita (+).
+    pub roll: f32,
+    /// Trás (-) / frente (+).
+    pub pitch: f32,
+    /// Descer (-) / subir (+).
+    pub throttle: f32,
+    /// Girar anti-horário (-) / horário (+).
+    pub yaw: f32,
+}
+
+impl Sticks {
+    pub const NEUTRAL: Sticks = Sticks { roll: 0.0, pitch: 0.0, throttle: 0.0, yaw: 0.0 };
+
+    pub fn clamped(self) -> Self {
+        let c = |v: f32| if v.is_finite() { v.clamp(-1.0, 1.0) } else { 0.0 };
+        Sticks { roll: c(self.roll), pitch: c(self.pitch), throttle: c(self.throttle), yaw: c(self.yaw) }
+    }
+
+    pub fn scaled(self, k: f32) -> Self {
+        Sticks { roll: self.roll * k, pitch: self.pitch * k, throttle: self.throttle * k, yaw: self.yaw * k }
+    }
+
+    pub fn is_neutral(&self) -> bool {
+        *self == Self::NEUTRAL
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum FlipDir {
+    Forward,
+    Back,
+    Left,
+    Right,
+    ForwardLeft,
+    ForwardRight,
+    BackLeft,
+    BackRight,
+}
+
+impl FlipDir {
+    pub fn is_diagonal(self) -> bool {
+        matches!(self, FlipDir::ForwardLeft | FlipDir::ForwardRight | FlipDir::BackLeft | FlipDir::BackRight)
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MoveDir {
+    Up,
+    Down,
+    Left,
+    Right,
+    Forward,
+    Back,
+}
+
+/// EZ Shots do app oficial.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SmartVideo {
+    Spin360,
+    Circle,
+    UpAndAway,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum Action {
+    Takeoff,
+    Land,
+    /// Corta os motores imediatamente.
+    Emergency,
+    /// Para e paira no lugar.
+    Stop,
+    Flip {
+        dir: FlipDir,
+    },
+    ThrowAndGo,
+    PalmLand,
+    Bounce {
+        on: bool,
+    },
+    SmartVideo {
+        mode: SmartVideo,
+    },
+    TakePhoto,
+    StreamOn,
+    StreamOff,
+    Move {
+        dir: MoveDir,
+        cm: u16,
+    },
+    Rotate {
+        clockwise: bool,
+        deg: u16,
+    },
+    SetSpeed {
+        cm_s: u16,
+    },
+    /// Ativa o "modo rápido" dos sticks (só no protocolo do app).
+    SetFastMode {
+        on: bool,
+    },
+    SetMaxHeight {
+        m: u16,
+    },
+    /// 0 = automático, 1..5 = 1..5 Mbps.
+    SetVideoBitrate {
+        level: u8,
+    },
+    /// Texto cru do SDK (apenas para depuração).
+    Raw {
+        text: String,
+    },
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Model {
+    #[default]
+    Unknown,
+    Tello,
+    TelloEdu,
+    RoboMasterTt,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct Capabilities {
+    pub protocol: Protocol,
+    pub model: Model,
+    pub sdk_version: Option<String>,
+    pub serial: Option<String>,
+    pub firmware: Option<String>,
+    pub flips: bool,
+    pub flips_diagonal: bool,
+    pub throw_and_go: bool,
+    pub palm_land: bool,
+    pub bounce: bool,
+    pub smart_video: bool,
+    pub hi_res_photo: bool,
+    pub fast_mode: bool,
+    pub max_height: bool,
+    pub video_bitrate: bool,
+    pub stop: bool,
+    pub mission_pads: bool,
+    pub raw_commands: bool,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct MissionPad {
+    pub id: i32,
+    pub x: i32,
+    pub y: i32,
+    pub z: i32,
+}
+
+/// Telemetria normalizada. Campos ausentes no protocolo atual ficam `None`.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct Telemetry {
+    pub battery: Option<u8>,
+    /// Altura relativa à decolagem, em cm.
+    pub height_cm: Option<i32>,
+    /// Distância ao chão pelo sensor ToF, em cm.
+    pub tof_cm: Option<i32>,
+    pub baro_m: Option<f32>,
+    pub temp_low_c: Option<i32>,
+    pub temp_high_c: Option<i32>,
+    pub pitch_deg: Option<i32>,
+    pub roll_deg: Option<i32>,
+    pub yaw_deg: Option<i32>,
+    /// Velocidades em dm/s.
+    pub speed_x: Option<i32>,
+    pub speed_y: Option<i32>,
+    pub speed_z: Option<i32>,
+    /// Acelerações em 0,001 g.
+    pub accel: Option<[f32; 3]>,
+    /// Tempo de motor ligado, em segundos.
+    pub flight_time_s: Option<u32>,
+    pub wifi_strength: Option<u8>,
+    pub flying: Option<bool>,
+    pub mission_pad: Option<MissionPad>,
+    pub battery_low: Option<bool>,
+    pub light_strength: Option<u8>,
+    pub fast_mode: Option<bool>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum WarningCode {
+    /// Os comandos funcionam, mas o estado (porta 8890) não chega: firewall.
+    NoState,
+    /// O vídeo foi ligado mas nenhum pacote chegou: firewall.
+    NoVideo,
+    /// A telemetria parou de chegar durante a conexão.
+    LinkLost,
+    LinkRestored,
+    /// Pouso automático por bateria baixa.
+    AutoLand,
+    Other,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum DroneEvent {
+    Connected {
+        caps: Capabilities,
+    },
+    Disconnected {
+        reason: String,
+    },
+    Telemetry {
+        data: Telemetry,
+    },
+    Warning {
+        code: WarningCode,
+        message: String,
+    },
+    PhotoSaved {
+        path: String,
+    },
+    /// Frame H.264 completo (Annex B). Não é serializado: vai por canal binário.
+    #[serde(skip)]
+    Video(VideoFrame),
+}
+
+pub type EventSink = Arc<dyn Fn(DroneEvent) + Send + Sync>;
