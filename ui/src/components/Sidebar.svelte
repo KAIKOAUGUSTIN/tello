@@ -26,7 +26,7 @@
   let bounce = $state(false);
 
   function holdKey(e: KeyboardEvent, start: boolean) {
-    if (e.key !== 'Enter' && e.key !== ' ') return;
+    if (e.key !== 'Enter') return;
     e.preventDefault();
     if (start && !e.repeat) beginTakeoffHold();
     if (!start) endTakeoffHold();

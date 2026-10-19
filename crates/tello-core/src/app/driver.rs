@@ -1,7 +1,7 @@
 use std::net::{SocketAddr, UdpSocket};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU16, Ordering};
-use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
+use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender, SyncSender};
 use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
@@ -46,7 +46,7 @@ struct Inner {
     video_on: AtomicBool,
     cmd_lock: Mutex<()>,
     acks: Mutex<Receiver<(u16, Vec<u8>)>>,
-    ack_tx: Mutex<Sender<(u16, Vec<u8>)>>,
+    ack_tx: SyncSender<(u16, Vec<u8>)>,
     handshake_tx: Mutex<Option<Sender<()>>>,
     caps: Mutex<Capabilities>,
     download: Mutex<Option<Download>>,
@@ -79,7 +79,8 @@ pub(crate) fn connect(cfg: &Config, shared: Arc<Shared>) -> Result<AppDriver, Er
     set_poll_timeout(&video_sock)?;
     let video_port = video_sock.local_addr()?.port();
 
-    let (ack_tx, ack_rx) = mpsc::channel();
+    // Fila limitada: mensagens que ninguém espera são descartadas quando enche.
+    let (ack_tx, ack_rx) = mpsc::sync_channel(64);
     let inner = Arc::new(Inner {
         shared,
         sock,
@@ -91,7 +92,7 @@ pub(crate) fn connect(cfg: &Config, shared: Arc<Shared>) -> Result<AppDriver, Er
         video_on: AtomicBool::new(false),
         cmd_lock: Mutex::new(()),
         acks: Mutex::new(ack_rx),
-        ack_tx: Mutex::new(ack_tx),
+        ack_tx,
         handshake_tx: Mutex::new(None),
         caps: Mutex::new(app_capabilities()),
         download: Mutex::new(None),
@@ -345,7 +346,7 @@ impl Inner {
             id::FILE_SIZE => self.start_download(&p.payload),
             id::FILE_DATA => self.receive_fragment(&p.payload),
             _ => {
-                let _ = self.ack_tx.lock().unwrap().send((p.cmd, p.payload));
+                let _ = self.ack_tx.try_send((p.cmd, p.payload));
             }
         }
     }

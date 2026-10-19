@@ -33,9 +33,13 @@ export function startKeyboard(onShortcut: (s: Shortcut, holdStart: boolean) => v
   let lastEsc = 0;
   const down = (e: KeyboardEvent) => {
     if (isTyping(e) || e.ctrlKey || e.metaKey || e.altKey) return;
+    if (STICK_KEYS.has(e.code) || e.code === 'Space') {
+      // Captura antes dos botões: Espaço/setas nunca acionam o botão com foco.
+      e.preventDefault();
+      e.stopPropagation();
+    }
     if (STICK_KEYS.has(e.code)) {
       keys.add(e.code);
-      e.preventDefault();
       return;
     }
     if (e.repeat) return;
@@ -67,6 +71,10 @@ export function startKeyboard(onShortcut: (s: Shortcut, holdStart: boolean) => v
   };
   const up = (e: KeyboardEvent) => {
     keys.delete(e.code);
+    if (e.code === 'Space' && !isTyping(e)) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
     if (e.code === 'KeyT') onShortcut('takeoff', false);
     if (e.code === 'KeyL') onShortcut('land', false);
   };
@@ -85,13 +93,13 @@ export function startKeyboard(onShortcut: (s: Shortcut, holdStart: boolean) => v
     report('keyboard', toDrone(left, right, 2, settings.invertPitch));
   }, 20);
 
-  window.addEventListener('keydown', down);
-  window.addEventListener('keyup', up);
+  window.addEventListener('keydown', down, { capture: true });
+  window.addEventListener('keyup', up, { capture: true });
   window.addEventListener('blur', clear);
   return () => {
     clearInterval(timer);
-    window.removeEventListener('keydown', down);
-    window.removeEventListener('keyup', up);
+    window.removeEventListener('keydown', down, { capture: true });
+    window.removeEventListener('keyup', up, { capture: true });
     window.removeEventListener('blur', clear);
   };
 }
