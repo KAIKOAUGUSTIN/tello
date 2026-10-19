@@ -1,0 +1,28 @@
+{
+  "name": "tello-pilot",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "license": "GPL-3.0-or-later",
+  "scripts": {
+    "dev": "vite --config ui/vite.config.ts",
+    "build": "vite build --config ui/vite.config.ts",
+    "preview": "vite preview --config ui/vite.config.ts",
+    "check": "svelte-check --tsconfig ui/tsconfig.json",
+    "test:ui": "playwright test -c ui/playwright.config.ts",
+    "tauri": "tauri"
+  },
+  "dependencies": {
+    "@tauri-apps/api": "^2.12.4"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.56.1",
+    "@sveltejs/vite-plugin-svelte": "^7.3.1",
+    "@tauri-apps/cli": "^2.12.3",
+    "@tsconfig/svelte": "^5.0.8",
+    "svelte": "^5.57.2",
+    "svelte-check": "^4.7.7",
+    "typescript": "~5.9.3",
+    "vite": "^8.3.4"
+  }
+}
