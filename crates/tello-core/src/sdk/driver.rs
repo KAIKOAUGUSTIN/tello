@@ -251,7 +251,12 @@ impl Inner {
                     let text = text.trim();
                     self.shared.blackbox.record(Dir::Rx, Channel::State, text, None);
                     let mut parsed = 0;
-                    self.shared.update_telemetry(|t| parsed = parse_state(text, t));
+                    let flying = self.shared.is_flying();
+                    self.shared.update_telemetry(|t| {
+                        parsed = parse_state(text, t);
+                        // O estado do SDK não diz se está voando: vem dos comandos.
+                        t.flying = Some(flying);
+                    });
                     if parsed == 0 {
                         self.shared.blackbox.info(Channel::State, "estado não reconhecido");
                     }

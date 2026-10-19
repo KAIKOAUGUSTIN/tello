@@ -112,9 +112,9 @@ fn takeoff_sticks_and_land() {
     wait_until("rc sem limite", Duration::from_secs(1), || rig.sim.last_rc() == [0, 100, 0, 0]);
 
     rig.wait_for(
-        "altura na telemetria",
+        "altura e 'voando' na telemetria",
         Duration::from_secs(2),
-        |e| matches!(e, DroneEvent::Telemetry { data } if data.height_cm.unwrap_or(0) >= 80),
+        |e| matches!(e, DroneEvent::Telemetry { data } if data.height_cm.unwrap_or(0) >= 80 && data.flying == Some(true)),
     );
     assert_eq!(drone.action(&Action::Land).unwrap(), "ok");
     assert!(!rig.sim.flying() && !drone.is_flying());

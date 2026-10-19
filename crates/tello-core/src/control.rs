@@ -130,9 +130,6 @@ impl Shared {
         let snapshot = {
             let mut t = self.telemetry.lock().unwrap();
             update(&mut t);
-            if t.flying.is_none() {
-                t.flying = Some(self.is_flying());
-            }
             t.clone()
         };
         let restored = from_link && {

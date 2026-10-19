@@ -45,7 +45,11 @@ fn main() {
         }
     }
     cfg.bind = SocketAddr::new(ip, port);
-    let sdk = cfg.sdk_version.clone().unwrap_or_else(|| "1.3".into());
+    let sdk = match cfg.sdk_version.as_deref() {
+        Some("30") => "3.0",
+        Some(_) => "2.0",
+        None => "1.3",
+    };
     let sim = Sim::start_verbose(cfg).unwrap_or_else(|e| fail(&format!("não foi possível abrir a porta: {e}")));
     println!("Simulador ouvindo em {} (SDK {sdk}). Ctrl+C para sair.", sim.addr());
     loop {
