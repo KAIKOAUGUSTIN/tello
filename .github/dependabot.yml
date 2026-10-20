@@ -1,0 +1,70 @@
+version: 2
+
+updates:
+  # Workspace Rust (crates/* e src-tauri), um único Cargo.lock na raiz.
+  - package-ecosystem: cargo
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: deps
+    groups:
+      tauri:
+        patterns:
+          - tauri
+          - tauri-*
+      rust-minor:
+        update-types:
+          - minor
+          - patch
+
+  # Interface (Svelte + Vite) e CLI do Tauri.
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: deps
+    groups:
+      # Mantém @tauri-apps/* alinhado com o crate tauri.
+      tauri:
+        patterns:
+          - "@tauri-apps/*"
+      svelte-vite:
+        patterns:
+          - svelte
+          - svelte-check
+          - "@sveltejs/*"
+          - "@tsconfig/svelte"
+          - vite
+      npm-minor:
+        update-types:
+          - minor
+          - patch
+    ignore:
+      # O svelte-check só suporta TypeScript 5/6.
+      - dependency-name: typescript
+        update-types:
+          - version-update:semver-major
+      # Fixado para combinar com o Chromium usado nos testes locais.
+      - dependency-name: "@playwright/test"
+        update-types:
+          - version-update:semver-major
+          - version-update:semver-minor
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: ci
+    groups:
+      actions:
+        patterns:
+          - "*"
