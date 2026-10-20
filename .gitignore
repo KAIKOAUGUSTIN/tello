@@ -1,0 +1,8 @@
+/target
+node_modules/
+/ui/dist
+/src-tauri/gen
+*.h264
+!/crates/tello-sim/fixtures/*.h264
+tello-log-*.jsonl
+.DS_Store
