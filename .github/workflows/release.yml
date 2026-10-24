@@ -101,10 +101,11 @@ jobs:
     name: Build
     needs: version
     if: needs.version.outputs.release == 'true'
+    # Compila o commit do push com a versão aplicada pelo version.mjs: o mesmo
+    # conteúdo do commit de versão, sem fazer checkout de outro ref.
     uses: ./.github/workflows/build.yml
     with:
       version: ${{ needs.version.outputs.version }}
-      ref: ${{ needs.version.outputs.sha }}
     secrets: inherit
 
   publish:
