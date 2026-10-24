@@ -17,6 +17,8 @@
     toggleRecording,
   } from './lib/commands.svelte';
   import { drone, initDrone, landAndQuit } from './lib/drone.svelte';
+  import { startPlatform } from './lib/platform.svelte';
+  import { keepScreenOn } from './lib/wakelock';
   import { startGamepad } from './input/gamepad';
   import { startKeyboard, type Shortcut } from './input/keyboard';
   import { startMixer } from './input/mixer.svelte';
@@ -38,9 +40,14 @@
   onMount(() => {
     const stops: (() => void)[] = [startKeyboard(onShortcut), startGamepad()];
     void initDrone().then((b) => {
+      stops.push(startPlatform(b));
       stops.push(startMixer((s) => b.setSticks(s), () => drone.conn === 'connected'));
     });
     return () => stops.forEach((s) => s());
+  });
+
+  $effect(() => {
+    if (drone.conn === 'connected') return keepScreenOn();
   });
 </script>
 

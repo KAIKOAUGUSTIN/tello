@@ -10,6 +10,7 @@ import type {
   DroneEvent,
   LogEntry,
   NetworkCheck,
+  PlatformInfo,
   Protocol,
   RecordingResult,
   Safety,
@@ -92,6 +93,13 @@ export class MockBackend implements Backend {
   private videoTimer = 0;
   private frameIndex = 0;
   private seq = 0;
+
+  /** `?mobile=1` (ou `?mobile=ios`) simula o app no celular. */
+  platform(): Promise<PlatformInfo> {
+    const mobile = new URLSearchParams(location.search).get('mobile');
+    if (!mobile) return Promise.resolve({ os: 'web', mobile: false });
+    return Promise.resolve({ os: mobile === 'ios' ? 'ios' : 'android', mobile: true });
+  }
 
   networkCheck(): Promise<NetworkCheck> {
     return Promise.resolve({ local_ip: '192.168.10.2', same_subnet: true });

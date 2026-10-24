@@ -5,6 +5,7 @@ import type {
   DroneEvent,
   LogEntry,
   NetworkCheck,
+  PlatformInfo,
   Protocol,
   RecordingResult,
   Safety,
@@ -18,6 +19,7 @@ type Unsubscribe = () => void;
 /** Tudo que a UI precisa do lado nativo. Há duas implementações: Tauri e simulada. */
 export interface Backend {
   readonly kind: 'tauri' | 'mock';
+  platform(): Promise<PlatformInfo>;
   networkCheck(ip: string): Promise<NetworkCheck>;
   connect(protocol: Protocol, config: Config): Promise<Capabilities>;
   disconnect(): Promise<void>;

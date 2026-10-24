@@ -1,12 +1,13 @@
 # Tello Pilot
 
-Cliente desktop para o drone **DJI/Ryze Tello**, com os protocolos implementados do zero, sem bibliotecas de Tello.
+Cliente para o drone **DJI/Ryze Tello** no **Windows, macOS, Linux, Android e iOS**, com os protocolos implementados do zero, sem bibliotecas de Tello.
 
 ![Tela de voo](docs/voo.png)
 
 - Vídeo ao vivo (H.264 decodificado pela placa de vídeo via WebCodecs)
 - HUD com horizonte artificial, altitude, velocidade, rumo, bateria e sinal
-- Controle por **mouse** (sticks virtuais), **teclado** e **controle Xbox** (com vibração)
+- Controle por **toque** e **mouse** (sticks virtuais), **teclado** e **controle Xbox** (com vibração)
+- No celular: layout próprio em paisagem, com botões grandes de decolar/pousar, foto e gravação
 - Dois modos de conexão:
   - **SDK oficial**: documentado e estável. Detecta Tello, Tello EDU e RoboMaster TT.
   - **Recursos do app**: Throw & Go, pouso na palma, flips 8D, EZ Shots (360°, círculo, Up & Away), modo Bounce, modo rápido e fotos de 5 MP.
@@ -16,16 +17,32 @@ Cliente desktop para o drone **DJI/Ryze Tello**, com os protocolos implementados
 
 ## Download
 
-Os executáveis do Windows são gerados pelo GitHub Actions a cada push. Em **Actions → CI → execução mais recente → Artifacts**:
+Baixe a versão mais recente na página de **[Releases](../../releases/latest)**:
 
-| Artifact | Conteúdo |
+| Plataforma | Arquivo |
 |---|---|
-| `tello-pilot-windows` | Instalador do app (`Tello Pilot_x.y.z_x64-setup.exe`) |
-| `tello-cli-windows` | `tello-cli.exe` (diagnóstico) e `tello-sim.exe` (simulador) |
+| Windows 10/11 | `Tello-Pilot_x.y.z_windows_x64-setup.exe` |
+| macOS 11+ (Intel e Apple Silicon) | `Tello-Pilot_x.y.z_macos_universal.dmg` |
+| Linux | `Tello-Pilot_x.y.z_linux_amd64.AppImage` ou `.deb` |
+| Android 7+ | `Tello-Pilot_x.y.z_android_universal.apk` |
+| iOS 16.4+ | `Tello-Pilot_x.y.z_ios_unsigned.ipa` |
 
-> O instalador não tem assinatura digital, então o Windows SmartScreen pode avisar. Clique em **Mais informações → Executar assim mesmo**.
->
-> O instalador pede permissão de administrador para criar a regra do Firewall. Sem ela, o Windows bloqueia a telemetria e o vídeo, porque classifica a rede do Tello como "Pública".
+O `tello-cli` (diagnóstico pelo terminal) também vem anexado para Windows, macOS e Linux, e o `SHA256SUMS.txt` traz os checksums de todos os arquivos.
+
+### Instalação
+
+Nenhum instalador tem assinatura paga, então cada sistema pede uma confirmação na primeira vez.
+
+- **Windows:** o SmartScreen pode avisar. Clique em **Mais informações → Executar assim mesmo**. O instalador pede permissão de administrador para criar a regra do Firewall: sem ela, o Windows bloqueia a telemetria e o vídeo, porque classifica a rede do Tello como "Pública".
+- **macOS:** arraste o app para **Aplicativos**. Na primeira abertura, clique com o botão direito no app → **Abrir**. No macOS 15 ou mais novo, vá em **Ajustes do Sistema → Privacidade e Segurança → Abrir Mesmo Assim**.
+- **Linux:** o AppImage roda direto (`chmod +x Tello-Pilot_*.AppImage`). O `.deb` instala com `sudo apt install ./Tello-Pilot_*.deb`. Veja as [limitações](#limitações-conhecidas) sobre o vídeo.
+- **Android:** abra o APK e permita instalar de "fontes desconhecidas". Ao entrar no Wi-Fi do drone, se o Android avisar que a rede não tem internet, escolha **manter a conexão**.
+- **iOS** (sem App Store): instale o `.ipa` com o [Sideloadly](https://sideloadly.io) (Windows/macOS) ou o [AltStore](https://altstore.io), usando o seu Apple ID. Depois, no iPhone:
+  1. ative **Ajustes → Privacidade e Segurança → Modo de Desenvolvedor**;
+  2. confie no seu Apple ID em **Ajustes → Geral → VPN e Gerenciamento de Dispositivos**;
+  3. na primeira conexão, permita o acesso à **rede local**.
+
+  Com um Apple ID gratuito, o app precisa ser reinstalado a cada **7 dias** (o AltStore renova sozinho).
 
 ## Primeiro teste: diagnóstico sem decolar
 
@@ -51,13 +68,17 @@ Opções: `--ip`, `--segundos`, `--saida <pasta>`. O modo `tello-cli.exe shell` 
 
 ![Tela de conexão](docs/conectar.png)
 
-1. Ligue o drone e conecte o computador ao Wi-Fi dele.
+1. Ligue o drone e conecte o computador ou o celular ao Wi-Fi dele.
 2. Escolha o modo (**SDK oficial** ou **Recursos do app**) e clique em **Conectar**.
 3. O vídeo liga sozinho. Para decolar, **segure** o botão "Segure para decolar" por 1 segundo.
 
+No celular, a tela fica em paisagem e os sticks ficam nos cantos de baixo. Decolar/pousar e pairar ficam à esquerda; foto e gravação, à direita. O botão ☰ abre os demais comandos (flips, EZ Shots, modos).
+
+![Layout do celular](docs/celular.png)
+
 ### Controles
 
-| Ação | Mouse | Teclado | Controle Xbox |
+| Ação | Mouse / toque | Teclado | Controle Xbox |
 |---|---|---|---|
 | Subir/descer · girar | Stick esquerdo | W/S · A/D | Stick esquerdo |
 | Frente/trás · lados | Stick direito | Setas | Stick direito |
@@ -77,44 +98,111 @@ O mapeamento segue o **modo 2** (o do app oficial). Nas configurações dá para
 
 - **Modo iniciante** (ligado por padrão): sticks limitados a 40% e altura máxima de 3 m.
 - **Pouso automático** quando a bateria chega a 10% (configurável), com alertas em 20% e 15% e vibração no controle.
-- Se o controle desconectar, a janela perder o foco ou o app parar de mandar comandos, os sticks voltam ao centro e o drone **paira**.
+- Se o controle desconectar, a janela perder o foco, o app for para o segundo plano ou parar de mandar comandos, os sticks voltam ao centro e o drone **paira**.
+- A tela não apaga nem bloqueia enquanto o drone está conectado.
 - Fechar o app com o drone voando abre uma confirmação para pousar antes.
 - Flips ficam desativados abaixo de 50% de bateria, porque o próprio drone recusa.
 
 ### Onde ficam os arquivos
 
-| Tipo | Pasta |
-|---|---|
-| Fotos de 5 MP e capturas | `Imagens\Tello Pilot` |
-| Vídeos gravados (MP4) | `Vídeos\Tello Pilot` |
-| Logs exportados | `Documentos\Tello Pilot\logs` |
+| Tipo | Windows, macOS e Linux | Android | iOS |
+|---|---|---|---|
+| Fotos de 5 MP e capturas | `Imagens/Tello Pilot` | Galeria, pasta `Pictures/Tello Pilot` | App **Arquivos** → Tello Pilot → `Fotos` |
+| Vídeos gravados (MP4) | `Vídeos/Tello Pilot` | Galeria, pasta `Movies/Tello Pilot` | App **Arquivos** → Tello Pilot → `Videos` |
+| Logs exportados | `Documentos/Tello Pilot/logs` | `Documents/Tello Pilot` | App **Arquivos** → Tello Pilot → `Logs` |
+
+No Android 10 ou mais antigo, tudo fica na pasta do app (`Android/data/io.github.kaikoaugustin.tellopilot/files/Documents`).
 
 ## Problemas comuns
 
 | Sintoma | Causa provável |
 |---|---|
-| "O drone não respondeu" | O computador não está no Wi-Fi do drone, o drone está desligado ou o app oficial está aberto no celular. |
+| "O drone não respondeu" | O computador/celular não está no Wi-Fi do drone, o drone está desligado ou o app oficial está aberto no celular. |
+| Não conecta no iPhone | Em **Ajustes → Tello Pilot**, ligue **Rede Local**. |
+| Não conecta no Android | Confirme que o Android manteve o Wi-Fi do drone mesmo "sem internet". Desligar os dados móveis também ajuda. |
 | Conecta, mas sem telemetria/vídeo | Firewall do Windows bloqueando a rede pública. Reinstale como administrador ou libere o Tello Pilot em **Segurança do Windows → Firewall → Permitir um aplicativo** (marque *Redes públicas*). |
 | Recurso aparece desativado | Ele não existe no modo ou modelo atual. Passe o mouse sobre o botão para ver o motivo. |
 | Modo App não conecta | Desligue e ligue o drone: depois de usar o SDK ele pode continuar nesse modo até reiniciar. |
 
 Em qualquer problema, abra a **caixa-preta** (ícone de inseto) e use **Exportar log**.
 
+## Limitações conhecidas
+
+- **Linux:** o vídeo depende do WebKitGTK ter H.264 no WebCodecs, o que varia com a distro. Instale `gstreamer1.0-libav` e `gstreamer1.0-plugins-bad`; se ainda assim não houver vídeo, o resto do app (telemetria, sticks, comandos) funciona normalmente.
+- **Android:** o WebView não expõe a Gamepad API, então o controle Xbox ainda não funciona no Android (use os sticks na tela). No iOS o controle funciona.
+- **iOS:** sem conta Apple Developer não há App Store nem TestFlight, e o app instalado com Apple ID gratuito expira em 7 dias.
+- **macOS:** o app não é notarizado pela Apple (veja a [instalação](#instalação)).
+
+## Versões e releases
+
+Todo commit no `main` gera uma release automaticamente (`.github/workflows/release.yml`):
+
+1. a versão é calculada pelos commits desde a última tag `vX.Y.Z`;
+2. se o `main` permitir, um commit `chore(release): vX.Y.Z` atualiza a versão nos arquivos e o `CHANGELOG.md`;
+3. os instaladores das 5 plataformas são gerados (`.github/workflows/build.yml`, que também roda em todo PR);
+4. a tag e a release são publicadas com o changelog e os arquivos.
+
+Como a versão sobe:
+
+| Mensagem do commit | Exemplo | Salto |
+|---|---|---|
+| `feat: ...` ou `[minor]` em qualquer lugar | `Suporte a iOS [minor]` | 0.1.0 → 0.2.0 |
+| `tipo!: ...`, `BREAKING CHANGE` no corpo ou `[major]` | `feat!: novo protocolo` | 0.1.0 → 1.0.0 |
+| qualquer outra | `Corrige o vídeo` | 0.1.0 → 0.1.1 |
+
+Também dá para escolher o salto em **Actions → Release → Run workflow**, ou subir a versão à mão com `node scripts/release/version.mjs set X.Y.Z` (ela é respeitada se for maior que a última tag).
+
+### Configuração (uma vez)
+
+**Chave do Android (obrigatória para atualizar o app instalado).** O Android só aceita uma atualização assinada com a mesma chave. Gere a chave uma vez e guarde o arquivo `.jks` e as senhas em lugar seguro: sem eles, quem já tem o app precisa desinstalar para instalar uma versão nova.
+
+```powershell
+# O keytool vem com o Java (JDK) ou com o Android Studio (pasta jbr\bin).
+keytool -genkeypair -v -keystore tello-pilot.jks -alias tello-pilot -keyalg RSA -keysize 2048 -validity 10000
+
+# Converte para base64 e copia para a área de transferência (PowerShell):
+[Convert]::ToBase64String([IO.File]::ReadAllBytes("tello-pilot.jks")) | Set-Clipboard
+# No Linux: base64 -w0 tello-pilot.jks · no macOS: base64 -i tello-pilot.jks
+```
+
+Em **Settings → Secrets and variables → Actions → New repository secret**, cadastre:
+
+| Secret | Valor |
+|---|---|
+| `ANDROID_KEYSTORE_BASE64` | o base64 do `.jks` |
+| `ANDROID_KEYSTORE_PASSWORD` | a senha do keystore |
+| `ANDROID_KEY_ALIAS` | `tello-pilot` (o `-alias` usado acima) |
+| `ANDROID_KEY_PASSWORD` | a senha da chave (se for a mesma do keystore, repita) |
+
+Sem esses secrets o APK sai assinado com uma chave temporária (o build avisa), que não atualiza o app já instalado.
+
+**Commit automático de versão (opcional).** O `main` tem uma ruleset que recusa push direto, inclusive do Actions. Sem configurar nada, as releases saem normalmente, mas os arquivos do repositório e o `CHANGELOG.md` ficam na versão anterior (a versão é aplicada só no build). Para o commit de versão entrar no `main`:
+
+1. crie um token *fine-grained* (**Settings → Developer settings → Personal access tokens**) com acesso a este repositório e permissão **Contents: Read and write**;
+2. cadastre-o como secret `RELEASE_TOKEN`;
+3. na ruleset do `main` (**Settings → Rules → Rulesets**), adicione **Repository admin** em *Bypass list*.
+
 ## Desenvolvimento
 
-Requisitos: Rust (stable), Node.js 22. No Linux, também as dependências do Tauri (`libwebkit2gtk-4.1-dev` e afins).
+Requisitos: Rust (stable), Node.js 22. No Linux, também as dependências do Tauri (`libwebkit2gtk-4.1-dev` e afins). Para Android: Android Studio (SDK e NDK) e Java 17+. Para iOS: macOS com Xcode e `xcodegen`.
 
 ```bash
 npm install
 
 cargo test -p tello-core -p tello-sim -p tello-cli   # testes (unitários + integração com o simulador)
 npm run check                                         # checagem de tipos da interface
+npm run test:scripts                                  # testes do script de versão
 
 npm run dev          # só a interface, no navegador, com um backend simulado
 npx tauri dev        # app completo
 cargo run -p tello-sim                                # simulador de Tello em 127.0.0.1
 cargo run -p tello-cli -- --ip 127.0.0.1              # diagnóstico contra o simulador
+
+npx tauri android init && npx tauri android dev        # Android (aparelho ou emulador)
+npx tauri ios init && npx tauri ios dev                # iOS (só no macOS)
 ```
+
+No navegador, `npm run dev` e abrir `http://localhost:5173/?mobile=1` (ou `?mobile=ios`) simula o app no celular. Os projetos nativos gerados em `src-tauri/gen` não vão para o repositório: o código nativo fica no plugin `crates/tauri-plugin-tello-mobile`.
 
 Com o simulador rodando, use **Usar simulador** na tela de conexão (IP `127.0.0.1`). Ele funciona nos dois modos (SDK e App) e envia vídeo de teste, telemetria e fotos.
 
@@ -124,8 +212,11 @@ Com o simulador rodando, use **Usar simulador** na tela de conexão (IP `127.0.0
 crates/tello-core   protocolos (SDK e App), vídeo, gravação MP4, segurança, caixa-preta
 crates/tello-sim    simulador do drone + testes de integração
 crates/tello-cli    diagnóstico e console de comandos
-src-tauri           app desktop: ponte entre o núcleo e a interface
+crates/tauri-plugin-tello-mobile
+                    ajustes nativos do celular (Kotlin e Swift): Wi-Fi sem internet, tela acesa, paisagem
+src-tauri           app: ponte entre o núcleo e a interface, configuração por plataforma
 ui                  interface (Svelte 5 + TypeScript)
+scripts/release     versão automática e changelog
 ```
 
 ### Dependências
@@ -139,8 +230,8 @@ O que é o coração do projeto é feito à mão: os protocolos do Tello, CRCs, 
 
 ## Próximos passos
 
-- macOS e Linux (mesmo código; no Linux o WebKitGTK pode não ter H.264 no WebCodecs)
-- Android (Tauri 2), com suporte ao controle e ao Wi-Fi sem internet do drone
+- Controle Xbox no Android (ponte nativa para os eventos do controle)
+- Publicação na App Store / TestFlight e na Play Store (exige as contas de desenvolvedor)
 
 ## Licença
 

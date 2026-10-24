@@ -2,6 +2,7 @@
   import { onMount } from 'svelte';
 
   import { connect, drone, initDrone } from '../lib/drone.svelte';
+  import { deviceWord, platform } from '../lib/platform.svelte';
   import { saveSettings, settings } from '../lib/settings.svelte';
   import type { NetworkCheck, Protocol } from '../lib/types';
   import Icon from './Icon.svelte';
@@ -51,9 +52,9 @@
   const connecting = $derived(drone.conn === 'connecting');
 </script>
 
-<div class="screen">
+<div class="screen" class:compact={platform.compact}>
   <div class="glow"></div>
-  <form class="card" onsubmit={submit}>
+  <form class="card" class:compact={platform.compact} onsubmit={submit}>
     <header>
       <div class="logo" aria-hidden="true">
         <svg viewBox="0 0 48 48" width="44" height="44">
@@ -72,7 +73,7 @@
       {#if demo}<span class="demo">Demonstração</span>{/if}
     </header>
 
-    <section class="step">
+    <section class="step wifi">
       <span class="label">1 · Wi-Fi</span>
       <div class="net" class:ok={net?.same_subnet} class:bad={net && !net.same_subnet}>
         <Icon name={net?.same_subnet ? 'wifi' : 'wifi-off'} size={20} />
@@ -83,14 +84,17 @@
             <strong>Na rede do drone</strong>
             <span class="muted">IP local {net.local_ip}</span>
           {:else}
-            <strong>Conecte o computador ao Wi-Fi <code>TELLO-XXXXXX</code></strong>
+            <strong>Conecte o {deviceWord()} ao Wi-Fi <code>TELLO-XXXXXX</code></strong>
             <span class="muted">Ligue o drone e escolha a rede dele nas configurações de Wi-Fi.</span>
+            {#if platform.os === 'android'}
+              <span class="muted">Se o Android avisar que a rede não tem internet, escolha manter a conexão.</span>
+            {/if}
           {/if}
         </div>
       </div>
     </section>
 
-    <section class="step">
+    <section class="step modes-step">
       <span class="label">2 · Modo de conexão</span>
       <div class="modes" role="radiogroup" aria-label="Modo de conexão">
         <button
@@ -118,7 +122,7 @@
       </div>
     </section>
 
-    <section class="step">
+    <section class="step ip-step">
       <label class="label" for="ip">3 · Endereço do drone</label>
       <div class="ip-row">
         <input id="ip" bind:value={settings.droneIp} spellcheck="false" autocomplete="off" />
@@ -136,8 +140,11 @@
           <p>{drone.error}</p>
           <ul>
             <li>O drone está ligado e com a luz piscando amarelo?</li>
-            <li>O computador está no Wi-Fi do drone (e não em outra rede)?</li>
-            <li>O app oficial do Tello está fechado no celular?</li>
+            <li>O {deviceWord()} está no Wi-Fi do drone (e não em outra rede)?</li>
+            {#if platform.os === 'ios'}
+              <li>Em Ajustes → Tello Pilot, a opção <b>Rede Local</b> está ligada?</li>
+            {/if}
+            <li>O app oficial do Tello está fechado{platform.mobile ? '' : ' no celular'}?</li>
           </ul>
           <button type="button" class="link" onclick={onOpenLog}>Ver log de comunicação</button>
         </div>
@@ -155,12 +162,13 @@
 </div>
 
 <style>
+  /* Flex + margin auto: centraliza, mas ainda rola quando a tela é baixa. */
   .screen {
     position: relative;
-    display: grid;
-    place-items: center;
+    display: flex;
     height: 100%;
-    padding: 24px;
+    padding: calc(24px + var(--safe-top)) calc(24px + var(--safe-right)) calc(24px + var(--safe-bottom))
+      calc(24px + var(--safe-left));
     overflow: auto;
     background:
       radial-gradient(1200px 600px at 50% -10%, rgb(45 212 238 / 0.12), transparent 60%),
@@ -180,6 +188,7 @@
 
   .card {
     position: relative;
+    margin: auto;
     width: min(560px, 100%);
     padding: 28px;
     border: 1px solid var(--border);
@@ -392,6 +401,85 @@
   @media (max-width: 520px) {
     .modes {
       grid-template-columns: 1fr;
+    }
+  }
+
+  /* Celular deitado: duas colunas para caber sem rolar. */
+  .card.compact {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    grid-template-areas:
+      'head modes'
+      'wifi modes'
+      'ip modes'
+      'go modes'
+      'error error';
+    grid-template-rows: auto auto auto 1fr auto;
+    gap: 10px 18px;
+    width: min(860px, 100%);
+    padding: 16px 18px;
+  }
+
+  .screen.compact {
+    padding: calc(10px + var(--safe-top)) calc(12px + var(--safe-right)) calc(10px + var(--safe-bottom))
+      calc(12px + var(--safe-left));
+  }
+
+  .compact .ip-row .btn {
+    white-space: nowrap;
+  }
+
+  .compact .connect {
+    align-self: end;
+  }
+
+  .compact header {
+    grid-area: head;
+  }
+
+  .compact .logo {
+    width: 44px;
+    height: 44px;
+  }
+
+  .compact .logo svg {
+    width: 32px;
+    height: 32px;
+  }
+
+  .compact h1 {
+    font-size: 20px;
+  }
+
+  .compact .wifi {
+    grid-area: wifi;
+  }
+
+  .compact .modes-step {
+    grid-area: modes;
+  }
+
+  .compact .ip-step {
+    grid-area: ip;
+  }
+
+  .compact .error {
+    grid-area: error;
+  }
+
+  .compact .connect {
+    grid-area: go;
+  }
+
+  .compact .modes {
+    grid-template-columns: 1fr;
+  }
+
+  @media (max-width: 600px) {
+    .card.compact {
+      grid-template-columns: 1fr;
+      grid-template-areas: 'head' 'wifi' 'modes' 'ip' 'go' 'error';
+      grid-template-rows: none;
     }
   }
 </style>

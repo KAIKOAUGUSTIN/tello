@@ -19,3 +19,4 @@ tauri = { version = "2.12", features = [] }
 serde.workspace = true
 serde_json.workspace = true
 tello-core.workspace = true
+tauri-plugin-tello-mobile = { path = "../crates/tauri-plugin-tello-mobile" }

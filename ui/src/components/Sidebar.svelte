@@ -14,6 +14,7 @@
   } from '../lib/commands.svelte';
   import { elapsed } from '../lib/clock.svelte';
   import { applySafety, backendRef, drone, isFlying, run } from '../lib/drone.svelte';
+  import { mediaHint, platform } from '../lib/platform.svelte';
   import { BEGINNER, saveSettings, settings } from '../lib/settings.svelte';
   import type { SmartVideo } from '../lib/types';
   import FlipPad from './FlipPad.svelte';
@@ -61,6 +62,7 @@
         onpointerdown={beginTakeoffHold}
         onpointerup={endTakeoffHold}
         onpointerleave={endTakeoffHold}
+        onpointercancel={endTakeoffHold}
         onkeydown={(e) => holdKey(e, true)}
         onkeyup={(e) => holdKey(e, false)}
         title="Segure por 1 segundo (T no teclado · Menu no controle)"
@@ -132,13 +134,18 @@
       <button class="btn" class:on={drone.videoOn} onclick={toggleVideo}>
         <Icon name="video" size={16} /> {drone.videoOn ? 'Vídeo on' : 'Vídeo off'}
       </button>
-      <button class="btn icon" title="Abrir pasta de fotos" onclick={() => backendRef()?.openFolder('photos')}>
-        <Icon name="camera" size={16} />
-      </button>
-      <button class="btn icon" title="Abrir pasta de vídeos" onclick={() => backendRef()?.openFolder('videos')}>
-        <Icon name="folder-open" size={16} />
-      </button>
+      {#if !platform.mobile}
+        <button class="btn icon" title="Abrir pasta de fotos" onclick={() => backendRef()?.openFolder('photos')}>
+          <Icon name="camera" size={16} />
+        </button>
+        <button class="btn icon" title="Abrir pasta de vídeos" onclick={() => backendRef()?.openFolder('videos')}>
+          <Icon name="folder-open" size={16} />
+        </button>
+      {/if}
     </div>
+    {#if platform.mobile}
+      <p class="hint"><Icon name="folder-open" size={14} /> {mediaHint()}</p>
+    {/if}
   </section>
 
   <section>
@@ -268,6 +275,15 @@
     50% {
       opacity: 0.35;
     }
+  }
+
+  .hint {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin: 0;
+    color: var(--muted);
+    font-size: 12px;
   }
 
   .grid3 {

@@ -3,6 +3,7 @@
 
   import { initDrone } from '../lib/drone.svelte';
   import { errorText, stamp } from '../lib/format';
+  import { platform } from '../lib/platform.svelte';
   import { toast } from '../lib/toasts.svelte';
   import type { LogEntry } from '../lib/types';
   import Icon from './Icon.svelte';
@@ -60,7 +61,7 @@
       const b = await initDrone();
       const path = await b.exportLog(stamp());
       toast('ok', 'Log exportado', path);
-      if (b.kind === 'tauri') void b.openFolder('logs');
+      if (b.kind === 'tauri' && !platform.mobile) void b.openFolder('logs').catch(() => {});
     } catch (e) {
       toast('error', 'Falha ao exportar o log', errorText(e));
     }
@@ -72,7 +73,7 @@
 </script>
 
 {#if open}
-  <div class="log" role="region" aria-label="Log de comunicação">
+  <div class="log" class:compact={platform.compact} role="region" aria-label="Log de comunicação">
     <header>
       <h2><Icon name="bug" size={16} /> Caixa-preta</h2>
       <div class="filters">
@@ -209,5 +210,28 @@
 
   .empty {
     color: var(--muted);
+  }
+
+  /* Celular: ocupa a tela toda e os filtros rolam de lado. */
+  .log.compact {
+    top: 0;
+    height: auto;
+    z-index: 42;
+    padding: var(--safe-top) var(--safe-right) var(--safe-bottom) var(--safe-left);
+  }
+
+  .compact header {
+    flex-wrap: wrap;
+  }
+
+  .compact .filters {
+    order: 5;
+    flex-basis: 100%;
+    margin-left: 0;
+    overflow-x: auto;
+  }
+
+  .compact .filters button {
+    flex: none;
   }
 </style>
