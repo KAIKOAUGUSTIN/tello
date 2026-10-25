@@ -36,7 +36,7 @@ Nenhum instalador tem assinatura paga, então cada sistema pede uma confirmaçã
 - **Windows:** o SmartScreen pode avisar. Clique em **Mais informações → Executar assim mesmo**. O instalador pede permissão de administrador para criar a regra do Firewall: sem ela, o Windows bloqueia a telemetria e o vídeo, porque classifica a rede do Tello como "Pública".
 - **macOS:** arraste o app para **Aplicativos**. Na primeira abertura, clique com o botão direito no app → **Abrir**. No macOS 15 ou mais novo, vá em **Ajustes do Sistema → Privacidade e Segurança → Abrir Mesmo Assim**.
 - **Linux:** o AppImage roda direto (`chmod +x Tello-Pilot_*.AppImage`). O `.deb` instala com `sudo apt install ./Tello-Pilot_*.deb`. Veja as [limitações](#limitações-conhecidas) sobre o vídeo.
-- **Android:** abra o APK e permita instalar de "fontes desconhecidas". Ao entrar no Wi-Fi do drone, se o Android avisar que a rede não tem internet, escolha **manter a conexão**.
+- **Android:** abra o APK e permita instalar de "fontes desconhecidas". No Android 17 ou mais novo, permita **Dispositivos por perto** quando o app pedir: é a permissão de rede local, sem a qual o sistema bloqueia a conversa com o drone. Ao entrar no Wi-Fi do drone, se o Android avisar que a rede não tem internet, escolha **manter a conexão**.
 - **iOS** (sem App Store): instale o `.ipa` com o [Sideloadly](https://sideloadly.io) (Windows/macOS) ou o [AltStore](https://altstore.io), usando o seu Apple ID. Depois, no iPhone:
   1. ative **Ajustes → Privacidade e Segurança → Modo de Desenvolvedor**;
   2. confie no seu Apple ID em **Ajustes → Geral → VPN e Gerenciamento de Dispositivos**;
@@ -119,7 +119,7 @@ No Android 10 ou mais antigo, tudo fica na pasta do app (`Android/data/io.github
 |---|---|
 | "O drone não respondeu" | O computador/celular não está no Wi-Fi do drone, o drone está desligado ou o app oficial está aberto no celular. |
 | Não conecta no iPhone | Em **Ajustes → Tello Pilot**, ligue **Rede Local**. |
-| Não conecta no Android | Confirme que o Android manteve o Wi-Fi do drone mesmo "sem internet". Desligar os dados móveis também ajuda. |
+| Não conecta no Android | No Android 17+, permita **Dispositivos por perto** em **Ajustes → Apps → Tello Pilot → Permissões**. Confirme também que o Android manteve o Wi-Fi do drone mesmo "sem internet"; desligar os dados móveis ajuda. |
 | Conecta, mas sem telemetria/vídeo | Firewall do Windows bloqueando a rede pública. Reinstale como administrador ou libere o Tello Pilot em **Segurança do Windows → Firewall → Permitir um aplicativo** (marque *Redes públicas*). |
 | Recurso aparece desativado | Ele não existe no modo ou modelo atual. Passe o mouse sobre o botão para ver o motivo. |
 | Modo App não conecta | Desligue e ligue o drone: depois de usar o SDK ele pode continuar nesse modo até reiniciar. |
