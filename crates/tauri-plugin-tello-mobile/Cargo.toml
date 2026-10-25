@@ -1,0 +1,15 @@
+[package]
+name = "tauri-plugin-tello-mobile"
+description = "Ajustes nativos de Android e iOS para o Tello Pilot"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+rust-version = "1.90"
+links = "tauri-plugin-tello-mobile"
+
+[dependencies]
+tauri = "2.12"
+
+[build-dependencies]
+tauri-plugin = { version = "2.7", features = ["build"] }

@@ -1,11 +1,14 @@
 <script lang="ts">
   import { applySafety, drone, run } from '../lib/drone.svelte';
+  import { platform } from '../lib/platform.svelte';
   import { resetSettings, saveSettings, settings } from '../lib/settings.svelte';
   import { input } from '../input/mixer.svelte';
   import Icon from './Icon.svelte';
 
   let { open = $bindable(false) }: { open?: boolean } = $props();
   let bitrate = $state(0);
+  // O WebView do Android não tem a Gamepad API; no iOS o controle funciona.
+  const noGamepad = $derived(platform.os === 'android' && !input.gamepad);
 
   function changed() {
     saveSettings();
@@ -26,7 +29,7 @@
 
 {#if open}
   <div class="scrim" role="presentation" onclick={() => (open = false)}></div>
-  <div class="drawer" role="dialog" aria-label="Configurações">
+  <div class="drawer" class:compact={platform.compact} role="dialog" aria-label="Configurações">
     <header>
       <h2>Configurações</h2>
       <button class="icon-btn" aria-label="Fechar" onclick={() => (open = false)}><Icon name="x" /></button>
@@ -75,16 +78,24 @@
           <span>Inverter frente/trás</span>
           <input type="checkbox" bind:checked={settings.invertPitch} onchange={changed} />
         </label>
-        <label class="row">
-          <span>Vibração do controle</span>
-          <input type="checkbox" bind:checked={settings.rumble} onchange={changed} />
-        </label>
+        {#if !noGamepad}
+          <label class="row">
+            <span>Vibração do controle</span>
+            <input type="checkbox" bind:checked={settings.rumble} onchange={changed} />
+          </label>
+        {/if}
         <label class="row">
           <span>Mostrar sticks na tela</span>
           <input type="checkbox" bind:checked={settings.showSticks} onchange={changed} />
         </label>
         <div class="monitor">
-          <span class="muted">{input.gamepad ? `Controle: ${input.gamepad}` : 'Nenhum controle detectado — aperte um botão do controle'}</span>
+          <span class="muted">
+            {input.gamepad
+              ? `Controle: ${input.gamepad}`
+              : noGamepad
+                ? 'Controle Xbox ainda não funciona no Android: use os sticks na tela'
+                : 'Nenhum controle detectado — aperte um botão do controle'}
+          </span>
           {#each bars as [name, v] (name)}
             <div class="bar">
               <span>{name}</span>
@@ -112,29 +123,34 @@
         {/if}
       </section>
 
-      <section>
-        <h3 class="label"><Icon name="keyboard" size={14} /> Atalhos</h3>
-        <dl class="keys">
-          <dt>W / S · A / D</dt><dd>Subir/descer · girar</dd>
-          <dt>Setas</dt><dd>Frente/trás · lados</dd>
-          <dt>T (segurar)</dt><dd>Decolar</dd>
-          <dt>L</dt><dd>Pousar</dd>
-          <dt>Espaço</dt><dd>Pairar</dd>
-          <dt>P · R</dt><dd>Foto · gravar vídeo</dd>
-          <dt>Esc Esc</dt><dd>Emergência</dd>
-        </dl>
-        <dl class="keys">
-          <dt>Menu (segurar)</dt><dd>Decolar · no ar: pousar</dd>
-          <dt>View + Menu</dt><dd>Emergência</dd>
-          <dt>A · X</dt><dd>Foto · gravar vídeo</dd>
-          <dt>B · Y</dt><dd>Pairar · modo rápido</dd>
-          <dt>LB + D-pad</dt><dd>Flips (duas direções = diagonal)</dd>
-          <dt>RB</dt><dd>Throw & Go · no ar: pouso na palma</dd>
-        </dl>
-      </section>
+      <!-- No Android não há teclado nem controle: só os sticks na tela. -->
+      {#if !noGamepad}
+        <section>
+          <h3 class="label"><Icon name="keyboard" size={14} /> Atalhos</h3>
+          {#if !platform.mobile}
+            <dl class="keys">
+              <dt>W / S · A / D</dt><dd>Subir/descer · girar</dd>
+              <dt>Setas</dt><dd>Frente/trás · lados</dd>
+              <dt>T (segurar)</dt><dd>Decolar</dd>
+              <dt>L</dt><dd>Pousar</dd>
+              <dt>Espaço</dt><dd>Pairar</dd>
+              <dt>P · R</dt><dd>Foto · gravar vídeo</dd>
+              <dt>Esc Esc</dt><dd>Emergência</dd>
+            </dl>
+          {/if}
+          <dl class="keys">
+            <dt>Menu (segurar)</dt><dd>Decolar · no ar: pousar</dd>
+            <dt>View + Menu</dt><dd>Emergência</dd>
+            <dt>A · X</dt><dd>Foto · gravar vídeo</dd>
+            <dt>B · Y</dt><dd>Pairar · modo rápido</dd>
+            <dt>LB + D-pad</dt><dd>Flips (duas direções = diagonal)</dd>
+            <dt>RB</dt><dd>Throw & Go · no ar: pouso na palma</dd>
+          </dl>
+        </section>
+      {/if}
 
       <section class="about">
-        <span class="muted">Tello Pilot 0.1.0 · GPL-3.0 · ícones Lucide (ISC)</span>
+        <span class="muted">Tello Pilot {__APP_VERSION__} · GPL-3.0 · ícones Lucide (ISC)</span>
         <button class="btn ghost" onclick={() => (resetSettings(), applySafety())}>Restaurar padrões</button>
       </section>
     </div>
@@ -162,6 +178,12 @@
     background: var(--bg-2);
     box-shadow: var(--shadow);
     animation: slide 0.18s ease-out;
+  }
+
+  .drawer.compact {
+    width: 100%;
+    padding: var(--safe-top) var(--safe-right) var(--safe-bottom) var(--safe-left);
+    border-left: 0;
   }
 
   @keyframes slide {

@@ -1,0 +1,144 @@
+name: Release
+
+# Cada commit no main vira uma release: calcula a versão pelos commits, grava
+# o commit de versão (quando o main permite), gera os instaladores de todas as
+# plataformas e publica a release com o changelog.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: Salto de versão
+        type: choice
+        options: [auto, patch, minor, major]
+        default: auto
+
+permissions:
+  contents: write
+
+# Uma release por vez, na ordem dos commits; nenhuma é cancelada.
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  version:
+    name: Versão e changelog
+    # Só no branch padrão, e nunca para o próprio commit de versão.
+    if: >-
+      github.ref_name == github.event.repository.default_branch &&
+      !startsWith(github.event.head_commit.message, 'chore(release):')
+    runs-on: ubuntu-latest
+    outputs:
+      release: ${{ steps.next.outputs.release }}
+      version: ${{ steps.next.outputs.version }}
+      tag: ${{ steps.next.outputs.tag }}
+      sha: ${{ steps.commit.outputs.sha || github.sha }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          # Com RELEASE_TOKEN (de um admin liberado na ruleset) o commit de versão
+          # entra no main; com o token padrão a ruleset recusa o push.
+          token: ${{ secrets.RELEASE_TOKEN || github.token }}
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+      - name: Calcular a versão
+        id: next
+        env:
+          BUMP: ${{ inputs.bump || 'auto' }}
+        run: node scripts/release/version.mjs next --bump "$BUMP" --notes release-notes.md
+      - name: Commit de versão
+        id: commit
+        if: steps.next.outputs.release == 'true' && steps.next.outputs.commit == 'true'
+        env:
+          VERSION: ${{ steps.next.outputs.version }}
+        run: |
+          node scripts/release/version.mjs set "$VERSION"
+          node scripts/release/version.mjs changelog "$VERSION" --notes release-notes.md
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Cargo.toml Cargo.lock package.json package-lock.json src-tauri/tauri.conf.json CHANGELOG.md
+          git commit -q -m "chore(release): v$VERSION"
+          if git push origin "HEAD:$GITHUB_REF_NAME"; then
+            echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+            echo "Commit \`chore(release): v$VERSION\` enviado ao \`$GITHUB_REF_NAME\`." >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "::warning::O main recusou o commit de versão; a v$VERSION sai com a versão aplicada só no build."
+            cat >> "$GITHUB_STEP_SUMMARY" <<EOF
+          ### Commit de versão recusado
+
+          A release **v$VERSION** sai normalmente (a versão é aplicada só durante o build),
+          mas os arquivos do \`$GITHUB_REF_NAME\` e o \`CHANGELOG.md\` continuam na versão anterior.
+
+          Para o commit automático entrar no main:
+          1. Crie um token *fine-grained* com acesso a este repositório e permissão **Contents: Read and write**.
+          2. Cadastre-o em *Settings → Secrets and variables → Actions* como \`RELEASE_TOKEN\`.
+          3. Na ruleset do main (*Settings → Rules → Rulesets*), adicione **Repository admin** em *Bypass list*.
+          EOF
+          fi
+      - name: Resumo
+        env:
+          RELEASE: ${{ steps.next.outputs.release }}
+          TAG: ${{ steps.next.outputs.tag }}
+          PREVIOUS: ${{ steps.next.outputs.previous }}
+        run: |
+          if [ "$RELEASE" = "true" ]; then
+            { echo "## Release $TAG"; echo; echo "Anterior: ${PREVIOUS:-nenhuma}"; echo; cat release-notes.md; } >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "Nenhuma mudança desde $TAG: sem release." >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - uses: actions/upload-artifact@v7
+        if: steps.next.outputs.release == 'true'
+        with:
+          name: release-notes
+          path: release-notes.md
+
+  build:
+    name: Build
+    needs: version
+    if: needs.version.outputs.release == 'true'
+    # Compila o commit do push com a versão aplicada pelo version.mjs: o mesmo
+    # conteúdo do commit de versão, sem fazer checkout de outro ref.
+    uses: ./.github/workflows/build.yml
+    with:
+      version: ${{ needs.version.outputs.version }}
+    secrets: inherit
+
+  publish:
+    name: Publicar a release
+    needs: [version, build]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: bundle-*
+          merge-multiple: true
+          path: dist
+      - uses: actions/download-artifact@v8
+        with:
+          name: release-notes
+      - name: Checksums
+        run: |
+          cd dist
+          sha256sum * > SHA256SUMS.txt
+          cat SHA256SUMS.txt
+      # A tag é criada junto com a release: se algum build falhar, nada é
+      # publicado e o próximo commit tenta a mesma versão de novo.
+      - name: Criar a release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.version.outputs.tag }}
+          VERSION: ${{ needs.version.outputs.version }}
+          SHA: ${{ needs.version.outputs.sha }}
+        run: |
+          if gh release view "$TAG" -R "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
+            gh release upload "$TAG" dist/* --clobber -R "$GITHUB_REPOSITORY"
+          else
+            gh release create "$TAG" dist/* -R "$GITHUB_REPOSITORY" --target "$SHA" \
+              --title "Tello Pilot $VERSION" --notes-file release-notes.md --latest
+          fi
+          echo "Release publicada: https://github.com/$GITHUB_REPOSITORY/releases/tag/$TAG" >> "$GITHUB_STEP_SUMMARY"

@@ -3,6 +3,7 @@
   import { hold } from '../lib/commands.svelte';
   import { drone, isFlying } from '../lib/drone.svelte';
   import { groundSpeed, meters, num } from '../lib/format';
+  import { platform } from '../lib/platform.svelte';
   import { safetyFromSettings, settings } from '../lib/settings.svelte';
   import { input } from '../input/mixer.svelte';
   import type { PlayerStats } from '../video/player';
@@ -32,7 +33,7 @@
   const stateLabel = $derived(drone.busy ?? (flying ? 'Voando' : 'No chão'));
 </script>
 
-<div class="hud" aria-hidden="true">
+<div class="hud" class:compact={platform.compact} aria-hidden="true">
   <div class="top">
     <span class="pill" class:air={flying} class:busy={!!drone.busy}>
       {#if drone.busy}<Icon name="refresh-ccw" size={14} class="spin" />{/if}
@@ -42,7 +43,10 @@
       <span class="banner rec"><span class="dot"></span> REC <span class="num">{elapsed(drone.recording.since)}</span></span>
     {/if}
     {#if !input.focused}
-      <span class="banner warn"><Icon name="pause" size={14} /> Janela sem foco: sticks no centro, drone pairando</span>
+      <span class="banner warn">
+        <Icon name="pause" size={14} />
+        {platform.mobile ? 'App em segundo plano' : 'Janela sem foco'}: sticks no centro, drone pairando
+      </span>
     {/if}
     {#if drone.linkLost}
       <span class="banner danger"><Icon name="wifi-off" size={14} /> Sinal do drone perdido</span>
@@ -65,36 +69,39 @@
     <circle class="aircraft" r="2.5" />
   </svg>
 
-  <div class="panel left">
-    <div class="metric">
-      <span class="k">VEL</span>
-      <span class="v num">{groundSpeed(t?.speed_x ?? null, t?.speed_y ?? null)}</span>
-      <span class="u">m/s</span>
-    </div>
-    <div class="metric small">
-      <span class="k">SUBIDA</span>
-      <span class="v num">{num(climb, 1)}</span>
-      <span class="u">m/s</span>
-    </div>
-  </div>
-
-  <div class="panel right">
-    <div class="alt-bar"><div class="alt-fill" style="height: {heightPct}%"></div></div>
-    <div class="alt-values">
+  <!-- No desktop os painéis ficam nas laterais; no celular, numa faixa em baixo. -->
+  <div class="metrics">
+    <div class="panel left">
       <div class="metric">
-        <span class="k">ALT</span>
-        <span class="v num">{meters(t?.height_cm)}</span>
-        <span class="u">m</span>
+        <span class="k">VEL</span>
+        <span class="v num">{groundSpeed(t?.speed_x ?? null, t?.speed_y ?? null)}</span>
+        <span class="u">m/s</span>
       </div>
       <div class="metric small">
-        <span class="k">TOF</span>
-        <span class="v num">{meters(t?.tof_cm)}</span>
-        <span class="u">m</span>
+        <span class="k">SUBIDA</span>
+        <span class="v num">{num(climb, 1)}</span>
+        <span class="u">m/s</span>
       </div>
-      <div class="metric small">
-        <span class="k">MÁX</span>
-        <span class="v num">{(maxHeight / 100).toFixed(0)}</span>
-        <span class="u">m</span>
+    </div>
+
+    <div class="panel right">
+      <div class="alt-bar"><div class="alt-fill" style="height: {heightPct}%"></div></div>
+      <div class="alt-values">
+        <div class="metric">
+          <span class="k">ALT</span>
+          <span class="v num">{meters(t?.height_cm)}</span>
+          <span class="u">m</span>
+        </div>
+        <div class="metric small">
+          <span class="k">TOF</span>
+          <span class="v num">{meters(t?.tof_cm)}</span>
+          <span class="u">m</span>
+        </div>
+        <div class="metric small">
+          <span class="k">MÁX</span>
+          <span class="v num">{(maxHeight / 100).toFixed(0)}</span>
+          <span class="u">m</span>
+        </div>
       </div>
     </div>
   </div>
@@ -383,5 +390,65 @@
     top: 18px;
     font-size: 11px;
     color: var(--hud-dim);
+  }
+
+  .metrics {
+    display: contents;
+  }
+
+  /* Celular: menos ruído entre os sticks e os botões. */
+  .compact .top {
+    top: 10px;
+    max-width: calc(100% - 180px);
+    gap: 6px;
+  }
+
+  .compact .pill,
+  .compact .banner {
+    padding: 4px 10px;
+    font-size: 12px;
+  }
+
+  .compact .horizon {
+    width: 180px;
+    height: 120px;
+  }
+
+  .compact .metrics {
+    position: absolute;
+    left: 50%;
+    bottom: calc(70px + var(--safe-bottom));
+    transform: translateX(-50%);
+    display: flex;
+    gap: 8px;
+  }
+
+  .compact .panel {
+    position: static;
+    transform: none;
+    padding: 6px 12px;
+  }
+
+  .compact .alt-bar,
+  .compact .metric.small {
+    display: none;
+  }
+
+  .compact .metric .v {
+    font-size: 20px;
+  }
+
+  .compact .heading {
+    bottom: calc(8px + var(--safe-bottom));
+    padding: 4px 10px 6px;
+  }
+
+  .compact .heading svg {
+    width: 220px;
+    height: 26px;
+  }
+
+  .compact .vstats {
+    display: none;
   }
 </style>

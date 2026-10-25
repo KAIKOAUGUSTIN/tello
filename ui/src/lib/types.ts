@@ -132,6 +132,12 @@ export interface NetworkCheck {
   same_subnet: boolean;
 }
 
+/** `os` vem de `std::env::consts::OS` ("windows", "macos", "linux", "android", "ios"). */
+export interface PlatformInfo {
+  os: string;
+  mobile: boolean;
+}
+
 export interface RecordingResult {
   path: string;
   frames: number;

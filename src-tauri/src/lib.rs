@@ -4,7 +4,9 @@
 //! - o vídeo vai por um `Channel` binário: [flags u8][seq u32 LE][Annex B];
 //! - a caixa-preta é enviada em lotes como `drone-log`.
 
-use std::path::{Path, PathBuf};
+#[cfg(desktop)]
+use std::path::Path;
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -18,6 +20,7 @@ type CmdResult<T> = Result<T, String>;
 type VideoChannel = Arc<Mutex<Option<Channel<InvokeResponseBody>>>>;
 type ActiveRecording = Arc<Mutex<Option<Recording>>>;
 
+#[cfg(any(desktop, target_os = "android"))]
 const APP_DIR: &str = "Tello Pilot";
 
 struct AppState {
@@ -187,7 +190,22 @@ fn stop_recording(state: State<'_, AppState>) -> CmdResult<RecordingResult> {
 #[tauri::command]
 fn open_folder(app: AppHandle, kind: String) -> CmdResult<()> {
     let dir = media_dir(&app, &kind)?;
-    open_path(&dir).map_err(|e| e.to_string())
+    #[cfg(desktop)]
+    return open_path(&dir).map_err(|e| e.to_string());
+    // No celular não há gerenciador de arquivos para abrir: a UI mostra uma dica.
+    #[cfg(mobile)]
+    Err(format!("abra a pasta {} pelo gerenciador de arquivos do aparelho", dir.display()))
+}
+
+#[derive(serde::Serialize)]
+struct PlatformInfo {
+    os: &'static str,
+    mobile: bool,
+}
+
+#[tauri::command]
+fn platform_info() -> PlatformInfo {
+    PlatformInfo { os: std::env::consts::OS, mobile: cfg!(mobile) }
 }
 
 /// Pousa (se estiver voando) e fecha o app.
@@ -208,6 +226,7 @@ async fn land_and_quit(app: AppHandle, state: State<'_, AppState>) -> CmdResult<
     Ok(())
 }
 
+#[cfg(desktop)]
 fn media_dir(app: &AppHandle, kind: &str) -> CmdResult<PathBuf> {
     let paths = app.path();
     let base = match kind {
@@ -222,6 +241,43 @@ fn media_dir(app: &AppHandle, kind: &str) -> CmdResult<PathBuf> {
     Ok(dir)
 }
 
+/// No Android 11+ fotos e vídeos vão para as pastas públicas (aparecem na
+/// galeria). Nas versões antigas, e no iOS, tudo fica na pasta de documentos do
+/// app; no iOS ela aparece no app Arquivos, em "Tello Pilot".
+#[cfg(mobile)]
+fn media_dir(app: &AppHandle, kind: &str) -> CmdResult<PathBuf> {
+    let sub = match kind {
+        "photos" => "Fotos",
+        "videos" => "Videos",
+        "logs" => "Logs",
+        _ => return Err(format!("pasta desconhecida: {kind}")),
+    };
+    #[cfg(target_os = "android")]
+    if let Some(dir) = android_public_dir(app, kind).filter(|d| std::fs::create_dir_all(d).is_ok()) {
+        return Ok(dir);
+    }
+    let paths = app.path();
+    let base = paths.document_dir().or_else(|_| paths.app_data_dir()).map_err(|e| e.to_string())?;
+    let dir = base.join(sub);
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    Ok(dir)
+}
+
+/// `Pictures`, `Movies` ou `Documents` do armazenamento do usuário. A raiz vem da
+/// pasta de documentos do app (`<raiz>/Android/data/<id>/files/Documents`), o que
+/// também funciona com perfis de trabalho e vários usuários.
+#[cfg(target_os = "android")]
+fn android_public_dir(app: &AppHandle, kind: &str) -> Option<PathBuf> {
+    let docs = app.path().document_dir().ok()?;
+    let root = docs.ancestors().find(|p| p.file_name().is_some_and(|n| n == "Android"))?.parent()?;
+    let public = match kind {
+        "photos" => "Pictures",
+        "videos" => "Movies",
+        _ => "Documents",
+    };
+    Some(root.join(public).join(APP_DIR))
+}
+
 fn sanitize(s: &str) -> String {
     let s: String = s.chars().filter(|c| c.is_ascii_alphanumeric() || *c == '-' || *c == '_').take(40).collect();
     if s.is_empty() {
@@ -231,6 +287,7 @@ fn sanitize(s: &str) -> String {
     }
 }
 
+#[cfg(desktop)]
 fn open_path(path: &Path) -> std::io::Result<()> {
     #[cfg(target_os = "windows")]
     let program = "explorer";
@@ -257,6 +314,7 @@ pub fn run() {
     let state = AppState { drone: Mutex::new(None), video: Arc::default(), recording: Arc::default(), blackbox };
 
     tauri::Builder::default()
+        .plugin(tauri_plugin_tello_mobile::init())
         .manage(state)
         .setup(move |app| {
             let handle = app.handle().clone();
@@ -297,6 +355,7 @@ pub fn run() {
             start_recording,
             stop_recording,
             open_folder,
+            platform_info,
             land_and_quit,
         ])
         .run(tauri::generate_context!())

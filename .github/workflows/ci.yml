@@ -1,5 +1,7 @@
 name: CI
 
+# Testes rápidos. Os instaladores de cada plataforma saem do build.yml.
+
 on:
   push:
     branches: ["**"]
@@ -39,36 +41,12 @@ jobs:
       - run: npm run check
       - run: npm run build
 
-  cli-windows:
-    name: tello-cli (Windows)
-    runs-on: windows-latest
+  scripts:
+    name: Scripts de release (testes)
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
-      - run: cargo build --release -p tello-cli -p tello-sim
-      - uses: actions/upload-artifact@v7
-        with:
-          name: tello-cli-windows
-          path: |
-            target/release/tello-cli.exe
-            target/release/tello-sim.exe
-
-  app-windows:
-    name: Tello Pilot (instalador Windows)
-    runs-on: windows-latest
-    steps:
-      - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
       - uses: actions/setup-node@v7
         with:
           node-version: 22
-          cache: npm
-      - run: npm ci
-      - run: cargo clippy -p tello-client -- -D warnings
-      - run: npx tauri build
-      - uses: actions/upload-artifact@v7
-        with:
-          name: tello-pilot-windows
-          path: target/release/bundle/nsis/*.exe
+      - run: npm run test:scripts

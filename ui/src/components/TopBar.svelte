@@ -3,10 +3,17 @@
   import { disconnect, drone } from '../lib/drone.svelte';
   import { duration, modelName, num } from '../lib/format';
   import type { IconName } from '../lib/icons';
+  import { platform } from '../lib/platform.svelte';
   import { input } from '../input/mixer.svelte';
   import Icon from './Icon.svelte';
 
-  let { onSettings, onLog, logOpen }: { onSettings: () => void; onLog: () => void; logOpen: boolean } = $props();
+  let {
+    onSettings,
+    onLog,
+    logOpen,
+    onMenu,
+    menuOpen = false,
+  }: { onSettings: () => void; onLog: () => void; logOpen: boolean; onMenu?: () => void; menuOpen?: boolean } = $props();
 
   const t = $derived(drone.telemetry);
   const battery = $derived(t?.battery ?? null);
@@ -37,7 +44,7 @@
   const protocolLabel = $derived(drone.caps?.protocol === 'app' ? 'App' : `SDK ${drone.caps?.sdk_version ?? ''}`);
 </script>
 
-<header class="bar">
+<header class="bar" class:compact={platform.compact}>
   <div class="brand">
     <span class="mark" aria-hidden="true"></span>
     <span class="name">Tello Pilot</span>
@@ -78,6 +85,11 @@
     <span class="source-name">{sourceLabel}</span>
   </span>
 
+  {#if platform.compact && onMenu}
+    <button class="icon-btn" class:active={menuOpen} title="Comandos" aria-label="Comandos" onclick={onMenu}>
+      <Icon name="menu" />
+    </button>
+  {/if}
   <button class="icon-btn" class:active={logOpen} title="Log de comunicação" onclick={onLog}>
     <Icon name="bug" />
   </button>
@@ -98,8 +110,8 @@
     display: flex;
     align-items: center;
     gap: 10px;
-    height: 56px;
-    padding: 0 12px 0 16px;
+    height: calc(56px + var(--safe-top));
+    padding: var(--safe-top) calc(12px + var(--safe-right)) 0 calc(16px + var(--safe-left));
     border-bottom: 1px solid var(--border);
     background: var(--bg-2);
   }
@@ -237,6 +249,58 @@
   @media (max-width: 1180px) {
     .chips .chip:nth-child(n + 3),
     .source {
+      display: none;
+    }
+  }
+
+  /* Celular: só o essencial, e emergência só com o ícone. */
+  .bar.compact {
+    gap: 6px;
+    height: calc(48px + var(--safe-top));
+    padding-left: calc(10px + var(--safe-left));
+    padding-right: calc(8px + var(--safe-right));
+  }
+
+  .compact .brand {
+    margin-right: 0;
+  }
+
+  .compact .name,
+  .compact .status .sep,
+  .compact .status .muted,
+  .compact .source,
+  .compact .emergency span {
+    display: none;
+  }
+
+  .compact .status {
+    padding: 4px 10px;
+    font-size: 12px;
+  }
+
+  .compact .chips .chip:nth-child(-n + 3) {
+    display: inline-flex;
+  }
+
+  .compact .chips .chip:nth-child(n + 4) {
+    display: none;
+  }
+
+  .compact .chip {
+    height: 30px;
+    padding: 0 8px;
+    gap: 4px;
+    font-size: 13px;
+  }
+
+  .compact .emergency {
+    min-height: 36px;
+    padding: 0 10px;
+  }
+
+  @media (max-width: 560px) {
+    .compact .status span:not(.dot),
+    .compact .chips .chip:nth-child(n + 2) {
       display: none;
     }
   }

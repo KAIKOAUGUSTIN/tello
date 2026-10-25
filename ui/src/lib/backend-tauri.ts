@@ -23,6 +23,7 @@ export async function createTauriBackend(): Promise<Backend> {
 
   return {
     kind: 'tauri',
+    platform: () => invoke('platform_info'),
     networkCheck: (ip) => invoke('network_check', { ip }),
     connect: (protocol, config) => invoke('connect', { protocol, config }),
     disconnect: () => invoke('disconnect'),

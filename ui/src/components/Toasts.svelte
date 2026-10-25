@@ -1,12 +1,13 @@
 <script lang="ts">
   import type { IconName } from '../lib/icons';
+  import { platform } from '../lib/platform.svelte';
   import { dismiss, toasts } from '../lib/toasts.svelte';
   import Icon from './Icon.svelte';
 
   const ICON: Record<string, IconName> = { info: 'info', ok: 'circle-check', warn: 'triangle-alert', error: 'octagon-alert' };
 </script>
 
-<div class="stack" aria-live="polite">
+<div class="stack" class:compact={platform.compact} aria-live="polite">
   {#each toasts as t (t.id)}
     <div class="toast {t.kind}" role="status">
       <Icon name={ICON[t.kind]} size={18} />
@@ -30,6 +31,16 @@
     gap: 8px;
     width: min(380px, calc(100vw - 32px));
     pointer-events: none;
+  }
+
+  /* Celular: no topo, longe dos sticks (um toast em cima do stick roubaria o toque). */
+  .stack.compact {
+    top: calc(54px + var(--safe-top));
+    right: auto;
+    bottom: auto;
+    left: 50%;
+    transform: translateX(-50%);
+    width: min(360px, calc(100vw - 180px));
   }
 
   .toast {

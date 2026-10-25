@@ -1,0 +1,254 @@
+name: Build
+
+# Gera os instaladores de todas as plataformas. Roda nos PRs (para pegar
+# quebras antes do merge) e é chamado pelo release.yml com a versão final.
+
+on:
+  pull_request:
+  workflow_dispatch:
+  workflow_call:
+    inputs:
+      version:
+        description: Versão a aplicar nos manifestos antes do build (vazio = a dos arquivos)
+        type: string
+        default: ""
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.event_name == 'pull_request' && format('build-pr-{0}', github.event.pull_request.number) || format('build-{0}', github.run_id) }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  windows:
+    name: Windows (NSIS)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: npm ci
+      - name: Versão
+        env:
+          RELEASE_VERSION: ${{ inputs.version }}
+        run: |
+          if [ -n "$RELEASE_VERSION" ]; then node scripts/release/version.mjs set "$RELEASE_VERSION"; fi
+          echo "VERSION=$(node -p "require('./package.json').version")" >> "$GITHUB_ENV"
+      - run: npx tauri build
+      - run: cargo build --release -p tello-cli
+      - name: Separar os arquivos
+        run: |
+          mkdir dist
+          cp target/release/bundle/nsis/*.exe "dist/Tello-Pilot_${VERSION}_windows_x64-setup.exe"
+          cp target/release/tello-cli.exe "dist/tello-cli_${VERSION}_windows_x64.exe"
+          ls -la dist
+      - uses: actions/upload-artifact@v7
+        with:
+          name: bundle-windows
+          path: dist/*
+          if-no-files-found: error
+
+  macos:
+    name: macOS (universal)
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
+      - uses: Swatinem/rust-cache@v2
+      - run: npm ci
+      - name: Versão
+        env:
+          RELEASE_VERSION: ${{ inputs.version }}
+        run: |
+          if [ -n "$RELEASE_VERSION" ]; then node scripts/release/version.mjs set "$RELEASE_VERSION"; fi
+          echo "VERSION=$(node -p "require('./package.json').version")" >> "$GITHUB_ENV"
+      # Um único .dmg para Intel e Apple Silicon, com assinatura ad-hoc.
+      - run: npx tauri build --target universal-apple-darwin
+      - name: tello-cli universal
+        run: |
+          cargo build --release -p tello-cli --target aarch64-apple-darwin
+          cargo build --release -p tello-cli --target x86_64-apple-darwin
+          lipo -create -output tello-cli \
+            target/aarch64-apple-darwin/release/tello-cli \
+            target/x86_64-apple-darwin/release/tello-cli
+      - name: Separar os arquivos
+        run: |
+          mkdir dist
+          cp target/universal-apple-darwin/release/bundle/dmg/*.dmg "dist/Tello-Pilot_${VERSION}_macos_universal.dmg"
+          tar -czf "dist/tello-cli_${VERSION}_macos_universal.tar.gz" tello-cli
+          ls -la dist
+      - uses: actions/upload-artifact@v7
+        with:
+          name: bundle-macos
+          path: dist/*
+          if-no-files-found: error
+
+  linux:
+    name: Linux (AppImage e .deb)
+    # 22.04: as bibliotecas do AppImage ficam compatíveis com distros mais antigas.
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v7
+      - name: Dependências do WebKitGTK
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libxdo-dev libssl-dev librsvg2-dev patchelf file
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+      - run: npm ci
+      - name: Versão
+        env:
+          RELEASE_VERSION: ${{ inputs.version }}
+        run: |
+          if [ -n "$RELEASE_VERSION" ]; then node scripts/release/version.mjs set "$RELEASE_VERSION"; fi
+          echo "VERSION=$(node -p "require('./package.json').version")" >> "$GITHUB_ENV"
+      - run: npm run build
+      - run: cargo clippy -p tello-client -p tauri-plugin-tello-mobile -- -D warnings
+      - run: npx tauri build
+      - run: cargo build --release -p tello-cli
+      - name: Separar os arquivos
+        run: |
+          mkdir dist
+          cp target/release/bundle/appimage/*.AppImage "dist/Tello-Pilot_${VERSION}_linux_amd64.AppImage"
+          cp target/release/bundle/deb/*.deb "dist/Tello-Pilot_${VERSION}_linux_amd64.deb"
+          tar -czf "dist/tello-cli_${VERSION}_linux_amd64.tar.gz" -C target/release tello-cli
+          ls -la dist
+      - uses: actions/upload-artifact@v7
+        with:
+          name: bundle-linux
+          path: dist/*
+          if-no-files-found: error
+
+  android:
+    name: Android (APK)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: 21
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android,armv7-linux-androideabi,x86_64-linux-android
+      - uses: Swatinem/rust-cache@v2
+      - run: npm ci
+      - name: Versão
+        env:
+          RELEASE_VERSION: ${{ inputs.version }}
+        run: |
+          if [ -n "$RELEASE_VERSION" ]; then node scripts/release/version.mjs set "$RELEASE_VERSION"; fi
+          echo "VERSION=$(node -p "require('./package.json').version")" >> "$GITHUB_ENV"
+          echo "NDK_HOME=$ANDROID_NDK_LATEST_HOME" >> "$GITHUB_ENV"
+      # O projeto Android é gerado aqui; o código nativo vem do plugin tello-mobile.
+      - run: npx tauri android init --ci
+      # Celulares (ARM 64 e 32 bits) e Chromebooks/emuladores (x86_64), num APK só.
+      - run: npx tauri android build --apk --ci --target aarch64 armv7 x86_64
+      - name: Assinar o APK
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          KEYSTORE="$RUNNER_TEMP/release.jks"
+          if [ -n "$ANDROID_KEYSTORE_BASE64" ]; then
+            echo "$ANDROID_KEYSTORE_BASE64" | base64 -d > "$KEYSTORE"
+            export KS_PASS="$ANDROID_KEYSTORE_PASSWORD"
+            export KEY_PASS="${ANDROID_KEY_PASSWORD:-$ANDROID_KEYSTORE_PASSWORD}"
+            ALIAS="$ANDROID_KEY_ALIAS"
+          else
+            # Sem a chave permanente (PRs do Dependabot e forks, ou secrets não
+            # cadastrados): uma chave temporária, que não atualiza o app instalado.
+            echo "::warning::APK assinado com uma chave temporária. Cadastre os secrets ANDROID_* (veja o README)."
+            echo "> ⚠️ APK assinado com chave temporária: cadastre os secrets \`ANDROID_*\` (veja o README)." >> "$GITHUB_STEP_SUMMARY"
+            export KS_PASS="temporaria" KEY_PASS="temporaria"
+            ALIAS="tello"
+            keytool -genkeypair -keystore "$KEYSTORE" -storepass "$KS_PASS" -keypass "$KEY_PASS" -alias "$ALIAS" \
+              -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Tello Pilot (chave temporaria)"
+          fi
+          BT=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)
+          UNSIGNED=$(find src-tauri/gen/android/app/build/outputs/apk -name '*-unsigned.apk' | head -1)
+          echo "APK: $UNSIGNED · build-tools: $BT"
+          # -P 16: bibliotecas alinhadas a 16 KB (exigido pelos Android 15+ com páginas grandes).
+          "$BT/zipalign" -P 16 -f 4 "$UNSIGNED" "$RUNNER_TEMP/aligned.apk"
+          mkdir dist
+          OUT="dist/Tello-Pilot_${VERSION}_android_universal.apk"
+          # Sem a assinatura v4 (.idsig), que só serve para instalação incremental via adb.
+          "$BT/apksigner" sign --ks "$KEYSTORE" --ks-pass env:KS_PASS --ks-key-alias "$ALIAS" --key-pass env:KEY_PASS \
+            --v4-signing-enabled false --out "$OUT" "$RUNNER_TEMP/aligned.apk"
+          "$BT/apksigner" verify --print-certs "$OUT" | grep -i "certificate dn"
+          rm -f "$KEYSTORE"
+          ls -la dist
+      - uses: actions/upload-artifact@v7
+        with:
+          name: bundle-android
+          path: dist/*
+          if-no-files-found: error
+
+  ios:
+    name: iOS (IPA sem assinatura)
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-ios
+      - uses: Swatinem/rust-cache@v2
+      - run: npm ci
+      - name: Versão
+        env:
+          RELEASE_VERSION: ${{ inputs.version }}
+        run: |
+          if [ -n "$RELEASE_VERSION" ]; then node scripts/release/version.mjs set "$RELEASE_VERSION"; fi
+          echo "VERSION=$(node -p "require('./package.json').version")" >> "$GITHUB_ENV"
+      - run: brew list xcodegen > /dev/null 2>&1 || brew install xcodegen
+      # O projeto Xcode é gerado aqui; o código nativo vem do plugin tello-mobile.
+      - run: npx tauri ios init --ci
+      # Sem conta Apple Developer: o .ipa sai sem assinatura e é assinado na hora
+      # de instalar (Sideloadly ou AltStore, com o Apple ID do usuário).
+      - run: npx tauri ios build --ci --no-sign
+      - name: Separar os arquivos
+        run: |
+          IPA=$(find src-tauri/gen/apple/build -name '*.ipa' | head -1)
+          echo "IPA: $IPA"
+          mkdir dist
+          cp "$IPA" "dist/Tello-Pilot_${VERSION}_ios_unsigned.ipa"
+          ls -la dist
+      - uses: actions/upload-artifact@v7
+        with:
+          name: bundle-ios
+          path: dist/*
+          if-no-files-found: error

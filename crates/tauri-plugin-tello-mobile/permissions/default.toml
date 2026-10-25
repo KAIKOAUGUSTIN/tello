@@ -1,0 +1,3 @@
+[default]
+description = "O plugin não expõe comandos ao frontend"
+permissions = []
