@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { applySafety, applyVideo, drone } from '../lib/drone.svelte';
+  import { applySafety, applyVideo, drone, isFlying, run } from '../lib/drone.svelte';
   import { mbps } from '../lib/format';
   import { platform } from '../lib/platform.svelte';
   import { resetSettings, saveSettings, settings } from '../lib/settings.svelte';
@@ -22,6 +22,15 @@
     if (settings.adaptiveVideo && settings.videoLevel === 0) settings.videoLevel = 4;
     saveSettings();
     applyVideo();
+  }
+
+  const calibration = $derived(drone.calibration);
+  const calibrating = $derived(calibration?.state === 'running');
+  const flying = $derived(isFlying());
+
+  function calibrate() {
+    if (!confirm('Tire as hélices antes de começar: você vai girar o drone com as mãos. Continuar?')) return;
+    void run({ type: 'calibrate_imu' }, null);
   }
 
   const bars = $derived([
@@ -140,6 +149,40 @@
           </span>
         {/if}
       </section>
+
+      {#if drone.caps?.imu_calibration}
+        <section>
+          <h3 class="label"><Icon name="rotate-3d" size={14} /> Calibração da IMU</h3>
+          <span class="muted">Use se o drone deriva mesmo com boa luz e sem vento, ou depois de uma queda.</span>
+          <ol class="steps">
+            <li>Tire as hélices e deixe o drone ligado sobre uma superfície plana.</li>
+            <li>Toque em <b>Calibrar</b>.</li>
+            <li>
+              Gire o drone pelas 6 posições: normal, de cabeça para baixo, de cada lado e com o nariz para cima e para
+              baixo. Segure parado em cada uma até o contador avançar.
+            </li>
+            <li>No fim, desligue e ligue o drone.</li>
+          </ol>
+          {#if calibration}
+            <div class="calib" class:done={calibration.state === 'done'} class:failed={calibration.state === 'timed_out'}>
+              <div class="progress"><span style="width: {calibration.progress}%"></span></div>
+              <span>
+                {#if calibration.state === 'running'}
+                  Posições: {calibration.steps}/6 · {calibration.progress}%
+                {:else if calibration.state === 'done'}
+                  Pronto. Desligue e ligue o drone para aplicar.
+                {:else}
+                  Não terminou. Desligue e ligue o drone e tente de novo.
+                {/if}
+              </span>
+            </div>
+          {/if}
+          <button class="btn" disabled={calibrating || flying} onclick={calibrate}>
+            <Icon name="rotate-3d" size={16} />
+            {calibrating ? 'Calibrando…' : flying ? 'Pouse para calibrar' : 'Calibrar'}
+          </button>
+        </section>
+      {/if}
 
       <!-- No Android não há teclado nem controle: só os sticks na tela. -->
       {#if !noGamepad}
@@ -332,6 +375,48 @@
   .muted {
     color: var(--muted);
     font-size: 12px;
+  }
+
+  .steps {
+    margin: 0;
+    padding-left: 20px;
+    color: var(--text-2);
+    font-size: 13px;
+    line-height: 1.45;
+  }
+
+  .calib {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    font-size: 13px;
+    font-weight: 600;
+  }
+
+  .calib.done {
+    color: var(--ok);
+  }
+
+  .calib.failed {
+    color: var(--warn);
+  }
+
+  .progress {
+    height: 6px;
+    border-radius: 3px;
+    background: var(--surface-3);
+    overflow: hidden;
+  }
+
+  .progress span {
+    display: block;
+    height: 100%;
+    background: var(--accent);
+    transition: width 0.3s;
+  }
+
+  .calib.done .progress span {
+    background: var(--ok);
   }
 
   .bar {

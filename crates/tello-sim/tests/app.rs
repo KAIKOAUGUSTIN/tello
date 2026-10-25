@@ -7,8 +7,8 @@ use std::thread::sleep;
 use std::time::{Duration, Instant};
 
 use tello_core::{
-    Action, Condition, Config, Drone, DroneEvent, Error, FlipDir, Protocol, Safety, SmartVideo, Sticks, VideoPolicy,
-    WarningCode,
+    Action, CalibrationState, Condition, Config, Drone, DroneEvent, Error, FlipDir, Protocol, Safety, SmartVideo,
+    Sticks, VideoPolicy, WarningCode,
 };
 use tello_sim::{Sim, SimConfig, FIXTURE_JPEG};
 
@@ -334,4 +334,43 @@ fn disconnecting_in_flight_closes_the_report_as_interrupted() {
     assert!(html.contains("interrompido") && html.contains("Linha do tempo"));
     let events = rig.events.lock().unwrap();
     assert!(matches!(events.last(), Some(DroneEvent::Disconnected { .. })), "o relatório vem antes do fim");
+}
+
+#[test]
+fn calibrates_the_imu_on_the_ground() {
+    let rig = Rig::connect();
+    assert!(rig.drone.caps().imu_calibration);
+    rig.drone.action(&Action::CalibrateImu).unwrap();
+    // No simulador o "usuário" leva 30 s × 0,05 = 1,5 s para as 6 posições.
+    let done = rig.wait_for("calibração concluída", Duration::from_secs(4), |e| match e {
+        DroneEvent::Calibration(c) if c.state == CalibrationState::Done => Some(*c),
+        _ => None,
+    });
+    assert_eq!((done.steps, done.progress), (6, 100));
+    let running: Vec<(u8, u8)> = rig
+        .events
+        .lock()
+        .unwrap()
+        .iter()
+        .filter_map(|e| match e {
+            DroneEvent::Calibration(c) if c.state == CalibrationState::Running => Some((c.steps, c.progress)),
+            _ => None,
+        })
+        .collect();
+    assert!(running.len() >= 3 && running.windows(2).all(|w| w[0] <= w[1]), "{running:?}");
+    assert!(rig.sim.received().iter().any(|r| r == "app:calibration_start"));
+    let polls = || rig.sim.received().iter().filter(|r| *r == "app:calibration_status").count();
+    let after_done = polls();
+    sleep(Duration::from_millis(600));
+    assert!(polls() <= after_done + 1, "as consultas continuaram depois de 100%");
+}
+
+#[test]
+fn refuses_imu_calibration_in_flight() {
+    let rig = Rig::connect();
+    rig.drone.action(&Action::Takeoff).unwrap();
+    rig.wait_flying(true);
+    assert!(matches!(rig.drone.action(&Action::CalibrateImu), Err(Error::Refused(_))));
+    assert!(!rig.sim.received().iter().any(|r| r == "app:calibration_start"));
+    rig.drone.action(&Action::Land).unwrap();
 }

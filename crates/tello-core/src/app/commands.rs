@@ -15,6 +15,8 @@ pub enum AppCommand {
     SetFast(bool),
     VideoOn,
     VideoOff,
+    /// Começa a calibração da IMU e acompanha o andamento.
+    CalibrateImu,
 }
 
 pub fn flip_code(dir: FlipDir) -> u8 {
@@ -56,6 +58,7 @@ pub fn translate(action: &Action) -> Result<AppCommand, Error> {
         Action::StreamOn => VideoOn,
         Action::StreamOff => VideoOff,
         Action::SetFastMode { on } => SetFast(*on),
+        Action::CalibrateImu => CalibrateImu,
         Action::SetMaxHeight { m } => {
             if !(1..=30).contains(m) {
                 return Err(Error::Protocol(format!("altura máxima fora do intervalo 1..30 m: {m}")));

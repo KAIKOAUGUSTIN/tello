@@ -48,6 +48,7 @@ const BASE_CAPS: Capabilities = {
   stop: true,
   mission_pads: true,
   raw_commands: true,
+  imu_calibration: false,
 };
 
 function capsFor(protocol: Protocol): Capabilities {
@@ -69,10 +70,19 @@ function capsFor(protocol: Protocol): Capabilities {
     video_bitrate: true,
     mission_pads: false,
     raw_commands: false,
+    imu_calibration: true,
   };
 }
 
-const APP_ONLY = new Set(['throw_and_go', 'palm_land', 'bounce', 'smart_video', 'take_photo', 'set_fast_mode']);
+const APP_ONLY = new Set([
+  'throw_and_go',
+  'palm_land',
+  'bounce',
+  'smart_video',
+  'take_photo',
+  'set_fast_mode',
+  'calibrate_imu',
+]);
 
 export class MockBackend implements Backend {
   readonly kind = 'mock' as const;
@@ -208,6 +218,10 @@ export class MockBackend implements Backend {
         this.flying = false;
         this.height = 0;
         break;
+      case 'calibrate_imu':
+        if (this.flying) throw 'o drone recusou o comando: pouse o drone antes de calibrar a IMU';
+        this.mockCalibration();
+        break;
       case 'flip':
         if (!this.flying) throw 'o drone recusou o comando: error Not joystick';
         if (this.battery < 50) throw 'o drone recusou o comando: error No valid imu';
@@ -289,6 +303,20 @@ export class MockBackend implements Backend {
   async openFolder(_kind: FolderKind): Promise<void> {}
 
   async openReport(_path: string): Promise<void> {}
+
+  /** Uma posição a cada 2 s, como alguém girando o drone com calma. */
+  private mockCalibration(): void {
+    this.events.emit({ type: 'calibration', steps: 0, progress: 0, state: 'running' });
+    for (let i = 1; i <= 12; i++) {
+      this.timers.push(
+        window.setTimeout(() => {
+          const progress = Math.round((i / 12) * 100);
+          const state = i === 12 ? 'done' : 'running';
+          this.events.emit({ type: 'calibration', steps: Math.floor(i / 2), progress, state });
+        }, i * 1000),
+      );
+    }
+  }
 
   /** Resumo como o do tello-core; com `?conditions=` aparece uma causa. */
   private flightReport(): void {

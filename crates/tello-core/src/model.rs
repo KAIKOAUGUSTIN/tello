@@ -131,6 +131,8 @@ pub enum Action {
     SetVideoBitrate {
         level: u8,
     },
+    /// Calibração da IMU (só no protocolo do app, com o drone no chão).
+    CalibrateImu,
     /// Texto cru do SDK (apenas para depuração).
     Raw {
         text: String,
@@ -167,6 +169,7 @@ pub struct Capabilities {
     pub stop: bool,
     pub mission_pads: bool,
     pub raw_commands: bool,
+    pub imu_calibration: bool,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]
@@ -297,6 +300,8 @@ pub enum DroneEvent {
     PhotoSaved {
         path: String,
     },
+    /// Andamento da calibração da IMU.
+    Calibration(Calibration),
     /// O voo terminou; `path` é o HTML salvo (quando há pasta configurada).
     FlightReport {
         path: Option<String>,
@@ -315,6 +320,25 @@ pub struct VideoStats {
     pub loss_pct: Option<f32>,
     /// Nível de taxa em uso (1..5), quando foi o app que escolheu.
     pub level: Option<u8>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CalibrationState {
+    Running,
+    /// Terminou: o drone precisa ser desligado e ligado de novo.
+    Done,
+    /// O drone não chegou a 100% no tempo limite.
+    TimedOut,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+pub struct Calibration {
+    /// Posições já aceitas pelo drone (0..=6).
+    pub steps: u8,
+    /// Andamento informado pelo drone, em %.
+    pub progress: u8,
+    pub state: CalibrationState,
 }
 
 pub type EventSink = Arc<dyn Fn(DroneEvent) + Send + Sync>;

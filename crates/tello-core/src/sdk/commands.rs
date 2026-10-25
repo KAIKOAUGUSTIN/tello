@@ -65,7 +65,8 @@ pub fn translate(action: &Action, caps: &Capabilities) -> Result<SdkCommand, Err
         | Action::Bounce { .. }
         | Action::SmartVideo { .. }
         | Action::TakePhoto
-        | Action::SetFastMode { .. } => return Err(Error::NotSupported(APP_ONLY)),
+        | Action::SetFastMode { .. }
+        | Action::CalibrateImu => return Err(Error::NotSupported(APP_ONLY)),
         Action::SetMaxHeight { .. } => {
             return Err(Error::NotSupported("no SDK a altura máxima é aplicada pelo próprio cliente"))
         }

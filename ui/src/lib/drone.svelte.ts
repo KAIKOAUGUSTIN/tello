@@ -6,7 +6,16 @@ import { errorText } from './format';
 import { logsHint, platform } from './platform.svelte';
 import { safetyFromSettings, settings, videoFromSettings } from './settings.svelte';
 import { toast } from './toasts.svelte';
-import type { Action, Capabilities, Condition, DroneEvent, FlightSummary, Telemetry, VideoStats } from './types';
+import type {
+  Action,
+  Calibration,
+  Capabilities,
+  Condition,
+  DroneEvent,
+  FlightSummary,
+  Telemetry,
+  VideoStats,
+} from './types';
 
 export type ConnState = 'disconnected' | 'connecting' | 'connected';
 
@@ -28,6 +37,8 @@ interface DroneState {
   noVideo: boolean;
   /** Condições que costumam deixar o voo instável (pouca luz, vento...). */
   conditions: Condition[];
+  /** Calibração da IMU em andamento ou o resultado da última. */
+  calibration: Calibration | null;
   confirmClose: boolean;
   /** Gravação em andamento (início em performance.now()). */
   recording: { since: number; path: string } | null;
@@ -47,6 +58,7 @@ export const drone: DroneState = $state({
   noState: false,
   noVideo: false,
   conditions: [],
+  calibration: null,
   confirmClose: false,
   recording: null,
 });
@@ -100,6 +112,10 @@ function handleEvent(e: DroneEvent): void {
     case 'flight_report':
       reportToast(e.path, e.summary);
       break;
+    case 'calibration':
+      drone.calibration = { steps: e.steps, progress: e.progress, state: e.state };
+      if (e.state === 'done') toast('ok', 'Calibração concluída', 'Desligue e ligue o drone para aplicar.', 15000);
+      break;
     case 'reconnecting':
       drone.linkLost = true;
       drone.reconnecting = e.attempt;
@@ -107,6 +123,7 @@ function handleEvent(e: DroneEvent): void {
     case 'disconnected':
       drone.conn = 'disconnected';
       drone.reconnecting = null;
+      drone.calibration = null;
       drone.caps = null;
       drone.videoOn = false;
       drone.video = null;
@@ -114,9 +131,11 @@ function handleEvent(e: DroneEvent): void {
       drone.conditions = [];
       break;
     case 'connected':
-      // Também chega depois de uma reconexão; o núcleo já religou o vídeo.
+      // Também chega depois de uma reconexão; o núcleo já religou o vídeo,
+      // mas uma calibração em andamento deixa de ser acompanhada.
       drone.caps = e.caps;
       drone.reconnecting = null;
+      if (drone.calibration?.state === 'running') drone.calibration = null;
       break;
   }
 }
@@ -172,6 +191,7 @@ export async function connect(): Promise<void> {
   drone.noState = drone.noVideo = drone.linkLost = false;
   drone.reconnecting = null;
   drone.conditions = [];
+  drone.calibration = null;
   drone.telemetry = null;
   batteryAlerts.clear();
   try {

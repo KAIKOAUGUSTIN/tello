@@ -7,7 +7,7 @@ use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
 use super::commands::{translate, AppCommand};
-use super::flight_data::{parse_alt_limit, parse_light, parse_version, parse_wifi, FlightData};
+use super::flight_data::{parse_alt_limit, parse_calibration, parse_light, parse_version, parse_wifi, FlightData};
 use super::log_data::parse_attitude;
 use super::packet::{id, kind, Packet};
 use super::photo::{self, Download, Progress};
@@ -20,7 +20,8 @@ use crate::util::{now_utc, utc_stamp};
 use crate::video::NalAssembler;
 use crate::video_link::{loss_pct, BitrateGovernor, FrameGap, LEVEL_MBPS};
 use crate::{
-    Action, Capabilities, Config, DroneEvent, Error, Model, Protocol, Sticks, VideoPolicy, VideoStats, WarningCode,
+    Action, Calibration, CalibrationState, Capabilities, Config, DroneEvent, Error, Model, Protocol, Sticks,
+    VideoPolicy, VideoStats, WarningCode,
 };
 
 /// Sticks a 50 Hz, como o app oficial.
@@ -29,6 +30,9 @@ const ACK_TIMEOUT: Duration = Duration::from_millis(800);
 const SPS_INTERVAL: Duration = Duration::from_secs(1);
 /// Depois de uma perda, um keyframe é pedido na hora, com este intervalo mínimo.
 const KEYFRAME_RETRY: Duration = Duration::from_millis(250);
+/// O andamento da calibração da IMU é consultado a 5 Hz, como no app oficial.
+const CALIBRATION_POLL: Duration = Duration::from_millis(200);
+const CALIBRATION_TIMEOUT: Duration = Duration::from_secs(180);
 
 const NO_STATE_HINT: &str = "O drone aceitou a conexão, mas a telemetria não chega. \
      Verifique o Firewall do Windows para redes públicas.";
@@ -60,6 +64,15 @@ struct Inner {
     caps: Mutex<Capabilities>,
     download: Mutex<Option<Download>>,
     video_watch: Mutex<(Option<Instant>, Option<Instant>, bool)>,
+    calibration: Mutex<Option<CalibrationRun>>,
+}
+
+/// Calibração da IMU em andamento.
+struct CalibrationRun {
+    started: Instant,
+    last_poll: Instant,
+    /// Último andamento informado (posições, %), para emitir só mudanças.
+    last: Option<(u8, u8)>,
 }
 
 fn app_capabilities() -> Capabilities {
@@ -77,6 +90,7 @@ fn app_capabilities() -> Capabilities {
         max_height: true,
         video_bitrate: true,
         stop: true,
+        imu_calibration: true,
         ..Default::default()
     }
 }
@@ -108,6 +122,7 @@ pub(crate) fn connect(cfg: &Config, shared: Arc<Shared>) -> Result<AppDriver, Er
         caps: Mutex::new(app_capabilities()),
         download: Mutex::new(None),
         video_watch: Mutex::new((None, None, false)),
+        calibration: Mutex::new(None),
     });
     let driver = AppDriver { inner: inner.clone(), threads: Mutex::new(Vec::new()) };
     driver.spawn("tello-app-recv", {
@@ -239,6 +254,7 @@ impl Inner {
                 self.video_watch.lock().unwrap().0 = None;
                 Ok("ok".into())
             }
+            AppCommand::CalibrateImu => self.start_calibration(),
             AppCommand::Send(p) => {
                 // O estado "voando" vem da telemetria (em_sky); a decolagem só o antecipa.
                 let takeoff = p.cmd == id::TAKEOFF;
@@ -364,12 +380,74 @@ impl Inner {
                     self.shared.blackbox.info(Channel::App, format!("limite de altura do drone: {m} m"));
                 }
             }
+            id::CALIBRATION_STATUS => self.calibration_status(&p.payload),
             id::FILE_SIZE => self.start_download(&p.payload),
             id::FILE_DATA => self.receive_fragment(&p.payload),
             _ => {
                 let _ = self.ack_tx.try_send((p.cmd, p.payload));
             }
         }
+    }
+
+    fn start_calibration(&self) -> Result<String, Error> {
+        if self.shared.is_flying() {
+            return Err(Error::Refused("pouse o drone antes de calibrar a IMU".into()));
+        }
+        let now = Instant::now();
+        *self.calibration.lock().unwrap() = Some(CalibrationRun { started: now, last_poll: now, last: None });
+        self.shared.blackbox.info(Channel::App, "calibração da IMU iniciada");
+        self.send(Packet::new(kind::GET, id::CALIBRATION_START, vec![]));
+        self.shared.emit(DroneEvent::Calibration(Calibration {
+            steps: 0,
+            progress: 0,
+            state: CalibrationState::Running,
+        }));
+        Ok("ok".into())
+    }
+
+    /// Chamado pelo loop de controle: consulta o andamento ou desiste no tempo limite.
+    fn poll_calibration(&self) {
+        let mut slot = self.calibration.lock().unwrap();
+        let Some(run) = slot.as_mut() else { return };
+        if run.started.elapsed() > CALIBRATION_TIMEOUT {
+            let (steps, progress) = run.last.unwrap_or((0, 0));
+            *slot = None;
+            drop(slot);
+            self.shared.emit(DroneEvent::Calibration(Calibration {
+                steps,
+                progress,
+                state: CalibrationState::TimedOut,
+            }));
+            self.shared.warn(
+                WarningCode::Other,
+                "A calibração da IMU não terminou em 3 minutos. Desligue e ligue o drone e tente de novo.",
+            );
+        } else if run.last_poll.elapsed() >= CALIBRATION_POLL {
+            run.last_poll = Instant::now();
+            drop(slot);
+            self.send(Packet::new(kind::GET, id::CALIBRATION_STATUS, vec![]));
+        }
+    }
+
+    fn calibration_status(&self, payload: &[u8]) {
+        let Some((steps, progress)) = parse_calibration(payload) else { return };
+        let mut slot = self.calibration.lock().unwrap();
+        let Some(run) = slot.as_mut() else { return };
+        if run.last == Some((steps, progress)) {
+            return;
+        }
+        run.last = Some((steps, progress));
+        let state = if progress >= 100 {
+            *slot = None;
+            CalibrationState::Done
+        } else {
+            CalibrationState::Running
+        };
+        drop(slot);
+        if state == CalibrationState::Done {
+            self.shared.blackbox.info(Channel::App, "calibração da IMU concluída");
+        }
+        self.shared.emit(DroneEvent::Calibration(Calibration { steps, progress, state }));
     }
 
     fn send_time(&self) {
@@ -569,6 +647,7 @@ impl Inner {
                 self.send(Packet::new(kind::DATA2, id::VIDEO_SPS_PPS, vec![]));
                 last_sps = Instant::now();
             }
+            self.poll_calibration();
             if last_check.elapsed() >= Duration::from_secs(1) {
                 last_check = Instant::now();
                 self.shared.check_link(NO_STATE_HINT);

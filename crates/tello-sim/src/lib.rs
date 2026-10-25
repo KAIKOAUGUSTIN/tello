@@ -79,6 +79,8 @@ pub(crate) struct State {
     video_loss: u8,
     /// Último nível de taxa pedido (VIDEO_RATE no modo App, `setbitrate` no SDK).
     video_rate: Option<u8>,
+    /// Início da calibração da IMU (modo App).
+    calibration: Option<Instant>,
 }
 
 pub(crate) struct Inner {
@@ -131,6 +133,7 @@ impl Sim {
             wifi: (90, 0),
             video_loss: 0,
             video_rate: None,
+            calibration: None,
         };
         let inner = Arc::new(Inner {
             cfg,

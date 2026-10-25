@@ -43,6 +43,7 @@ export type Action =
   | { type: 'set_fast_mode'; on: boolean }
   | { type: 'set_max_height'; m: number }
   | { type: 'set_video_bitrate'; level: number }
+  | { type: 'calibrate_imu' }
   | { type: 'raw'; text: string };
 
 export type Model = 'unknown' | 'tello' | 'tello_edu' | 'robo_master_tt';
@@ -66,6 +67,7 @@ export interface Capabilities {
   stop: boolean;
   mission_pads: boolean;
   raw_commands: boolean;
+  imu_calibration: boolean;
 }
 
 export interface MissionPad {
@@ -120,6 +122,7 @@ export type DroneEvent =
   | { type: 'warning'; code: WarningCode; message: string }
   | { type: 'conditions'; active: Condition[] }
   | ({ type: 'video_stats' } & VideoStats)
+  | ({ type: 'calibration' } & Calibration)
   | { type: 'photo_saved'; path: string }
   | { type: 'flight_report'; path: string | null; summary: FlightSummary };
 
@@ -151,6 +154,16 @@ export interface VideoStats {
   /** Só no modo App. */
   loss_pct: number | null;
   level: number | null;
+}
+
+export type CalibrationState = 'running' | 'done' | 'timed_out';
+
+/** Andamento da calibração da IMU (modo App). */
+export interface Calibration {
+  /** Posições já aceitas pelo drone (0 a 6). */
+  steps: number;
+  progress: number;
+  state: CalibrationState;
 }
 
 /** Resumo do voo, gerado no pouso junto com o relatório em HTML. */

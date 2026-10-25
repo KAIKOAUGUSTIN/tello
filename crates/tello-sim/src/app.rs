@@ -117,6 +117,18 @@ impl Inner {
                 self.send_app(from, id::VERSION, v);
             }
             id::ALT_LIMIT => self.send_app(from, id::ALT_LIMIT, vec![0, 10, 0]),
+            id::CALIBRATION_START => {
+                self.state.lock().unwrap().calibration = Some(Instant::now());
+                self.send_app(from, id::CALIBRATION_START, vec![0]);
+            }
+            id::CALIBRATION_STATUS => {
+                // O "usuário" leva 30 s (escalados) para passar pelas 6 posições.
+                let started = self.state.lock().unwrap().calibration;
+                let progress = started.map_or(0.0, |t| t.elapsed().as_secs_f32() / self.scaled(30.0).as_secs_f32());
+                let progress = (progress * 100.0).min(100.0) as u8;
+                let steps = (progress as u32 * 6 / 100) as u8;
+                self.send_app(from, id::CALIBRATION_STATUS, vec![0, (1u8 << steps) - 1, 0, progress, 0]);
+            }
             id::VIDEO_SPS_PPS => self.state.lock().unwrap().streaming = true,
             id::TAKE_PICTURE => {
                 ack(0);
