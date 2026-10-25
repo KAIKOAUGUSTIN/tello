@@ -374,3 +374,22 @@ fn refuses_imu_calibration_in_flight() {
     assert!(!rig.sim.received().iter().any(|r| r == "app:calibration_start"));
     rig.drone.action(&Action::Land).unwrap();
 }
+
+#[test]
+fn experimental_cog_calibration_only_in_a_still_low_hover() {
+    let rig = Rig::connect();
+    assert!(rig.drone.caps().cog_calibration);
+    assert!(matches!(rig.drone.action(&Action::CalibrateCog), Err(Error::Refused(_))), "no chão");
+    rig.drone.action(&Action::Takeoff).unwrap();
+    rig.wait_flying(true);
+    rig.drone.set_sticks(Sticks { roll: 0.5, ..Sticks::NEUTRAL });
+    assert!(matches!(rig.drone.action(&Action::CalibrateCog), Err(Error::Refused(_))), "sticks fora do centro");
+    assert!(!rig.sim.received().iter().any(|r| r == "app:calibrate"), "recusado antes de enviar");
+    rig.drone.set_sticks(Sticks::NEUTRAL);
+    assert_eq!(rig.drone.action(&Action::CalibrateCog).unwrap(), "ok");
+    assert!(rig.sim.received().iter().any(|r| r == "app:calibrate"));
+    let log = rig.drone.blackbox().snapshot();
+    let noted = log.iter().filter(|e| e.text.contains("centro de massa (experimental)")).count();
+    assert!(noted >= 3, "envio, resposta e resultado na caixa-preta ({noted})");
+    rig.drone.action(&Action::Land).unwrap();
+}

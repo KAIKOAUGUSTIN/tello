@@ -151,7 +151,8 @@ fn refused_and_unsupported_commands() {
     assert!(matches!(drone.action(&Action::ThrowAndGo), Err(Error::NotSupported(_))));
     assert!(matches!(drone.action(&Action::Flip { dir: FlipDir::BackLeft }), Err(Error::NotSupported(_))));
     assert!(matches!(drone.action(&Action::CalibrateImu), Err(Error::NotSupported(_))));
-    assert!(!drone.caps().imu_calibration);
+    assert!(matches!(drone.action(&Action::CalibrateCog), Err(Error::NotSupported(_))));
+    assert!(!drone.caps().imu_calibration && !drone.caps().cog_calibration);
     assert_eq!(drone.action(&Action::Raw { text: "battery?".into() }).unwrap(), "87");
 }
 

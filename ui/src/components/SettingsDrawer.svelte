@@ -1,5 +1,13 @@
 <script lang="ts">
-  import { applySafety, applyVideo, drone, isFlying, run } from '../lib/drone.svelte';
+  import {
+    applySafety,
+    applyVideo,
+    calibrateCog,
+    COG_MAX_HEIGHT_CM,
+    drone,
+    isFlying,
+    run,
+  } from '../lib/drone.svelte';
   import { mbps } from '../lib/format';
   import { platform } from '../lib/platform.svelte';
   import { resetSettings, saveSettings, settings } from '../lib/settings.svelte';
@@ -32,6 +40,18 @@
     if (!confirm('Tire as hélices antes de começar: você vai girar o drone com as mãos. Continuar?')) return;
     void run({ type: 'calibrate_imu' }, null);
   }
+
+  // Calibração do centro de massa: o núcleo confere de novo antes de enviar.
+  const height = $derived(drone.telemetry?.height_cm ?? null);
+  const cogBlocker = $derived(
+    !flying
+      ? 'Decole para calibrar'
+      : height === null || height > COG_MAX_HEIGHT_CM
+        ? 'Desça para menos de 1,5 m'
+        : drone.busy
+          ? 'Aguarde'
+          : null,
+  );
 
   const bars = $derived([
     ['Giro', input.sticks.yaw],
@@ -180,6 +200,30 @@
           <button class="btn" disabled={calibrating || flying} onclick={calibrate}>
             <Icon name="rotate-3d" size={16} />
             {calibrating ? 'Calibrando…' : flying ? 'Pouse para calibrar' : 'Calibrar'}
+          </button>
+        </section>
+      {/if}
+
+      {#if drone.caps?.cog_calibration}
+        <section>
+          <h3 class="label">
+            <Icon name="crosshair" size={14} /> Centro de massa <span class="tag">Experimental</span>
+          </h3>
+          <span class="muted">
+            Para o drone que puxa sempre para o mesmo lado ao pairar, mesmo com a IMU calibrada. O comando não é
+            documentado pela fabricante: use num lugar fechado, com espaço e com o dedo na emergência.
+          </span>
+          <ol class="steps">
+            <li>Decole e deixe o drone pairando a menos de 1,5 m, longe de paredes.</li>
+            <li>Solte os sticks e toque em <b>Calibrar centro de massa</b>.</li>
+            <li>
+              Não mexa nos sticks por alguns segundos. Se o drone se mover de um jeito estranho, pouse ou use a
+              emergência.
+            </li>
+          </ol>
+          <button class="btn" disabled={cogBlocker !== null} onclick={() => void calibrateCog()}>
+            <Icon name="crosshair" size={16} />
+            {cogBlocker ?? 'Calibrar centro de massa'}
           </button>
         </section>
       {/if}
@@ -375,6 +419,15 @@
   .muted {
     color: var(--muted);
     font-size: 12px;
+  }
+
+  .tag {
+    padding: 1px 6px;
+    border-radius: 4px;
+    background: var(--surface-3);
+    color: var(--warn);
+    font-size: 10px;
+    letter-spacing: 0.04em;
   }
 
   .steps {

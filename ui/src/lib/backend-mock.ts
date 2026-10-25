@@ -49,6 +49,7 @@ const BASE_CAPS: Capabilities = {
   mission_pads: true,
   raw_commands: true,
   imu_calibration: false,
+  cog_calibration: false,
 };
 
 function capsFor(protocol: Protocol): Capabilities {
@@ -71,6 +72,7 @@ function capsFor(protocol: Protocol): Capabilities {
     mission_pads: false,
     raw_commands: false,
     imu_calibration: true,
+    cog_calibration: true,
   };
 }
 
@@ -82,6 +84,7 @@ const APP_ONLY = new Set([
   'take_photo',
   'set_fast_mode',
   'calibrate_imu',
+  'calibrate_cog',
 ]);
 
 export class MockBackend implements Backend {
@@ -221,6 +224,11 @@ export class MockBackend implements Backend {
       case 'calibrate_imu':
         if (this.flying) throw 'o drone recusou o comando: pouse o drone antes de calibrar a IMU';
         this.mockCalibration();
+        break;
+      case 'calibrate_cog':
+        if (!this.flying) throw 'o drone recusou o comando: decole e deixe o drone pairando antes de calibrar';
+        if (this.height > 150) throw 'o drone recusou o comando: desça para menos de 1,5 m antes de calibrar';
+        await delay(400);
         break;
       case 'flip':
         if (!this.flying) throw 'o drone recusou o comando: error Not joystick';

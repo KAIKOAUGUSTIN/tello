@@ -6,7 +6,7 @@ use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
-use super::commands::{translate, AppCommand};
+use super::commands::{check_cog_calibration, translate, AppCommand};
 use super::flight_data::{parse_alt_limit, parse_calibration, parse_light, parse_version, parse_wifi, FlightData};
 use super::log_data::parse_attitude;
 use super::packet::{id, kind, Packet};
@@ -91,6 +91,7 @@ fn app_capabilities() -> Capabilities {
         video_bitrate: true,
         stop: true,
         imu_calibration: true,
+        cog_calibration: true,
         ..Default::default()
     }
 }
@@ -255,6 +256,18 @@ impl Inner {
                 Ok("ok".into())
             }
             AppCommand::CalibrateImu => self.start_calibration(),
+            AppCommand::CalibrateCog(p) => {
+                let t = self.shared.telemetry();
+                let active = self.shared.conditions();
+                check_cog_calibration(&t, self.shared.is_flying(), self.shared.effective_sticks(), &active)?;
+                self.shared.blackbox.info(
+                    Channel::App,
+                    format!("centro de massa (experimental): calibrando a {} cm", t.height_cm.unwrap_or_default()),
+                );
+                let result = self.send_and_wait(p);
+                self.shared.blackbox.info(Channel::App, format!("centro de massa (experimental): {result:?}"));
+                result
+            }
             AppCommand::Send(p) => {
                 // O estado "voando" vem da telemetria (em_sky); a decolagem só o antecipa.
                 let takeoff = p.cmd == id::TAKEOFF;
@@ -381,6 +394,12 @@ impl Inner {
                 }
             }
             id::CALIBRATION_STATUS => self.calibration_status(&p.payload),
+            id::CALIBRATE => {
+                // Comando experimental: tudo o que o drone mandar fica registrado.
+                let msg = format!("centro de massa (experimental): o drone mandou [{}]", to_hex(&p.payload));
+                self.shared.blackbox.info(Channel::App, msg);
+                let _ = self.ack_tx.try_send((p.cmd, p.payload));
+            }
             id::FILE_SIZE => self.start_download(&p.payload),
             id::FILE_DATA => self.receive_fragment(&p.payload),
             _ => {

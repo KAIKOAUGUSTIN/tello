@@ -255,6 +255,35 @@ export function emergency(): void {
   toast('error', 'EMERGÊNCIA', 'Motores desligados.');
 }
 
+/** Altura máxima para a calibração do centro de massa (igual à do tello-core). */
+export const COG_MAX_HEIGHT_CM = 150;
+
+/** Calibração do centro de massa (experimental): o drone precisa estar pairando baixo. */
+export async function calibrateCog(): Promise<void> {
+  if (!backend || drone.conn !== 'connected') return;
+  const ok = confirm(
+    'Recurso experimental: o comando não é documentado pela fabricante.\n\n' +
+      'Use num lugar fechado, com espaço, longe de pessoas, e fique com o dedo no botão de Emergência. ' +
+      'Depois de enviar, não mexa nos sticks por alguns segundos. Continuar?',
+  );
+  if (!ok) return;
+  drone.busy = 'Calibrando centro de massa';
+  try {
+    const reply = await backend.action({ type: 'calibrate_cog' });
+    const confirmed = reply === 'ok';
+    toast(
+      confirmed ? 'ok' : 'warn',
+      confirmed ? 'O drone aceitou a calibração' : 'Enviado, sem confirmação do drone',
+      'Deixe pairando sem mexer nos sticks por alguns segundos e depois pouse. A resposta do drone fica na caixa-preta.',
+      12000,
+    );
+  } catch (e) {
+    toast('error', 'Calibração recusada', errorText(e));
+  } finally {
+    if (drone.busy === 'Calibrando centro de massa') drone.busy = null;
+  }
+}
+
 export function applySafety(): void {
   backend?.setSafety(safetyFromSettings(settings));
 }

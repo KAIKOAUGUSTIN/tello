@@ -133,6 +133,9 @@ pub enum Action {
     },
     /// Calibração da IMU (só no protocolo do app, com o drone no chão).
     CalibrateImu,
+    /// Calibração do centro de massa (experimental): só no protocolo do app,
+    /// com o drone pairando baixo e os sticks no centro.
+    CalibrateCog,
     /// Texto cru do SDK (apenas para depuração).
     Raw {
         text: String,
@@ -170,6 +173,8 @@ pub struct Capabilities {
     pub mission_pads: bool,
     pub raw_commands: bool,
     pub imu_calibration: bool,
+    /// Calibração do centro de massa (experimental).
+    pub cog_calibration: bool,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]

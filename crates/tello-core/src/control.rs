@@ -152,6 +152,11 @@ impl Shared {
         self.emit(DroneEvent::FlightReport { path, summary });
     }
 
+    /// Condições de voo ativas agora.
+    pub fn conditions(&self) -> Vec<crate::Condition> {
+        self.conditions.lock().unwrap().active()
+    }
+
     pub fn is_flying(&self) -> bool {
         self.flying.load(Ordering::Relaxed)
     }

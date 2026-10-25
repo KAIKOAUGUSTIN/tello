@@ -44,6 +44,7 @@ export type Action =
   | { type: 'set_max_height'; m: number }
   | { type: 'set_video_bitrate'; level: number }
   | { type: 'calibrate_imu' }
+  | { type: 'calibrate_cog' }
   | { type: 'raw'; text: string };
 
 export type Model = 'unknown' | 'tello' | 'tello_edu' | 'robo_master_tt';
@@ -68,6 +69,8 @@ export interface Capabilities {
   mission_pads: boolean;
   raw_commands: boolean;
   imu_calibration: boolean;
+  /** Calibração do centro de massa (experimental). */
+  cog_calibration: boolean;
 }
 
 export interface MissionPad {

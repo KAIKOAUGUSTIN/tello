@@ -111,6 +111,8 @@ impl Inner {
                 ack(0);
             }
             id::BOUNCE | id::SET_ALT_LIMIT | id::EXPOSURE | id::VIDEO_MODE => ack(0),
+            // Comportamento do drone real desconhecido: aceita só pairando.
+            id::CALIBRATE => ack(if flying { 0 } else { 1 }),
             id::VERSION => {
                 let mut v = vec![0];
                 v.extend_from_slice(b"01.04.92.01\0");

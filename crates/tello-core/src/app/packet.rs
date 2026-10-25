@@ -54,6 +54,9 @@ pub mod id {
     pub const LOG_DATA: u16 = 0x1051;
     pub const LOG_CONFIG: u16 = 0x1052;
     pub const BOUNCE: u16 = 0x1053;
+    /// Calibração com o drone pairando: 0 = IMU, 1 = centro de massa. Só documentada
+    /// na wiki do tellopilots, sem teste conhecido: usada como recurso experimental.
+    pub const CALIBRATE: u16 = 0x1054;
     pub const ALT_LIMIT: u16 = 0x1056;
 
     pub fn name(id: u16) -> &'static str {
@@ -86,6 +89,7 @@ pub mod id {
             LOG_DATA => "log_data",
             LOG_CONFIG => "log_config",
             BOUNCE => "bounce",
+            CALIBRATE => "calibrate",
             ALT_LIMIT => "alt_limit",
             _ => "?",
         }
