@@ -309,8 +309,11 @@ impl Inner {
                 None => self.shared.blackbox.info(Channel::App, "flight data curto demais"),
             },
             id::WIFI => {
-                if let Some(w) = parse_wifi(&p.payload) {
-                    self.shared.patch_telemetry(|t| t.wifi_strength = Some(w));
+                if let Some((strength, interference)) = parse_wifi(&p.payload) {
+                    self.shared.patch_telemetry(|t| {
+                        t.wifi_strength = Some(strength);
+                        t.wifi_interference = interference.or(t.wifi_interference);
+                    });
                 }
             }
             id::LIGHT => {

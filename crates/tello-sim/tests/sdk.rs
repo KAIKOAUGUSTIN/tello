@@ -5,7 +5,9 @@ use std::sync::{Arc, Mutex};
 use std::thread::sleep;
 use std::time::{Duration, Instant};
 
-use tello_core::{Action, Config, Drone, DroneEvent, Error, FlipDir, Model, Protocol, Safety, Sticks, WarningCode};
+use tello_core::{
+    Action, Condition, Config, Drone, DroneEvent, Error, FlipDir, Model, Protocol, Safety, Sticks, WarningCode,
+};
 use tello_sim::{Sim, SimConfig};
 
 const LOCALHOST: IpAddr = IpAddr::V4(Ipv4Addr::LOCALHOST);
@@ -212,4 +214,20 @@ fn fixture_has_tello_like_sps() {
     assert_eq!((sps.width, sps.height), (960, 720));
     assert_eq!((sps.profile_idc, sps.level_idc), (77, 40));
     assert_eq!(sps.codec_string(), "avc1.4D4028");
+}
+
+#[test]
+fn polls_wifi_and_warns_when_weak() {
+    let rig = Rig::new(|_| {});
+    let drone = rig.connect().unwrap();
+    rig.sim.set_wifi(20, 0);
+    rig.wait_for("aviso de sinal fraco", Duration::from_secs(12), |e| {
+        matches!(e, DroneEvent::Warning { code: WarningCode::WeakSignal, .. })
+    });
+    assert_eq!(drone.telemetry().wifi_strength, Some(20));
+    rig.wait_for(
+        "condição de sinal fraco",
+        Duration::from_secs(1),
+        |e| matches!(e, DroneEvent::Conditions { active } if active == &[Condition::WeakSignal]),
+    );
 }

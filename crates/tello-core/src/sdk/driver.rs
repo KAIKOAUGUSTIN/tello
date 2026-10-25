@@ -19,6 +19,10 @@ const TICK: Duration = Duration::from_millis(50);
 /// Tamanho dos fragmentos de vídeo; um pacote menor marca o fim do frame.
 const VIDEO_CHUNK: usize = 1460;
 const NO_VIDEO_AFTER: Duration = Duration::from_secs(4);
+/// O estado do SDK não traz o sinal Wi-Fi: ele é consultado com `wifi?`.
+const WIFI_POLL: Duration = Duration::from_secs(5);
+/// Espera curta: a consulta nunca deve atrasar um comando do usuário.
+const POLL_TIMEOUT: Duration = Duration::from_millis(500);
 
 const NO_STATE_HINT: &str = "O drone responde aos comandos, mas a telemetria (UDP 8890) não chega. \
      Normalmente é o Firewall do Windows bloqueando a rede do Tello: permita o app em redes \
@@ -93,6 +97,10 @@ pub(crate) fn connect(cfg: &Config, shared: Arc<Shared>) -> Result<SdkDriver, Er
     driver.spawn("tello-sdk-control", {
         let inner = inner.clone();
         move || inner.control_loop()
+    });
+    driver.spawn("tello-sdk-poll", {
+        let inner = inner.clone();
+        move || inner.poll_loop()
     });
     Ok(driver)
 }
@@ -220,6 +228,37 @@ impl Inner {
             }
         }
         Err(Error::Timeout(cmd.text.clone()))
+    }
+
+    /// Consulta que desiste se outro comando estiver em andamento.
+    fn try_query(&self, text: &str) -> Option<String> {
+        let _lock = self.cmd_lock.try_lock().ok()?;
+        let rx = self.responses.lock().unwrap();
+        while rx.try_recv().is_ok() {}
+        self.send_raw(text);
+        let deadline = Instant::now() + POLL_TIMEOUT;
+        loop {
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            match rx.recv_timeout(remaining) {
+                Ok(resp) if resp == "ok" => continue,
+                Ok(resp) => return Some(resp),
+                Err(_) => return None,
+            }
+        }
+    }
+
+    fn poll_loop(&self) {
+        let mut last = Instant::now();
+        while self.shared.running() {
+            thread::sleep(Duration::from_millis(100));
+            if last.elapsed() < WIFI_POLL || self.paused.load(Ordering::Relaxed) {
+                continue;
+            }
+            last = Instant::now();
+            if let Some(w) = self.try_query("wifi?").and_then(|r| r.parse::<u8>().ok()) {
+                self.shared.patch_telemetry(|t| t.wifi_strength = Some(w));
+            }
+        }
     }
 
     fn response_loop(&self, sock: UdpSocket, tx: Sender<String>) {

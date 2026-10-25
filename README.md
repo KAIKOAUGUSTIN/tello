@@ -103,6 +103,16 @@ O mapeamento segue o **modo 2** (o do app oficial). Nas configurações dá para
 - Fechar o app com o drone voando abre uma confirmação para pousar antes.
 - Flips ficam desativados abaixo de 50% de bateria, porque o próprio drone recusa.
 
+### Estabilidade
+
+Quem segura o drone no ar é o controlador de voo dele, com a IMU, a câmera de baixo e o sensor de distância. O app ajuda do lado de cá: avisa quando o ambiente atrapalha e cuida do link.
+
+- **Avisos de condição de voo.** Cada aviso aparece como um selo no topo da tela enquanto a condição dura (e só depois de ela se manter por 3 s):
+  - **Pouca luz** (modo App): a câmera de baixo precisa de luz e de um chão com textura; sem isso o drone deriva.
+  - **Vento forte** (modo App), detectado pelo próprio drone.
+  - **Sinal Wi-Fi fraco**, abaixo de 30%. No modo SDK o app consulta o sinal a cada 5 s.
+  - **Acima de 6 m**: a câmera de baixo deixa de enxergar o chão.
+
 ### Onde ficam os arquivos
 
 | Tipo | Windows, macOS e Linux | Android | iOS |

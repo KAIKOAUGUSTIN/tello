@@ -156,6 +156,7 @@ impl Inner {
             em_sky: s.flying,
             em_ground: !s.flying,
             battery_low: s.battery < 20.0,
+            wind_state: s.wind,
             ..Default::default()
         };
         self.send_app(to, id::FLIGHT, fd.encode());
@@ -165,8 +166,8 @@ impl Inner {
             self.send_app(to, id::LOG_DATA, log);
         }
         if tick % 5 == 0 {
-            self.send_app(to, id::WIFI, vec![90, 0]);
-            self.send_app(to, id::LIGHT, vec![12]);
+            self.send_app(to, id::WIFI, vec![s.wifi.0, s.wifi.1]);
+            self.send_app(to, id::LIGHT, vec![s.light_poor as u8]);
         }
     }
 }

@@ -1,10 +1,11 @@
 // Estado da conexão com o drone e ações de alto nível usadas pela UI.
 
 import { getBackend, type Backend } from './backend';
+import { CONDITIONS } from './conditions';
 import { errorText } from './format';
 import { safetyFromSettings, settings } from './settings.svelte';
 import { toast } from './toasts.svelte';
-import type { Action, Capabilities, DroneEvent, Telemetry } from './types';
+import type { Action, Capabilities, Condition, DroneEvent, Telemetry } from './types';
 
 export type ConnState = 'disconnected' | 'connecting' | 'connected';
 
@@ -20,6 +21,8 @@ interface DroneState {
   error: string | null;
   noState: boolean;
   noVideo: boolean;
+  /** Condições que costumam deixar o voo instável (pouca luz, vento...). */
+  conditions: Condition[];
   confirmClose: boolean;
   /** Gravação em andamento (início em performance.now()). */
   recording: { since: number; path: string } | null;
@@ -36,6 +39,7 @@ export const drone: DroneState = $state({
   error: null,
   noState: false,
   noVideo: false,
+  conditions: [],
   confirmClose: false,
   recording: null,
 });
@@ -76,6 +80,9 @@ function handleEvent(e: DroneEvent): void {
       if (e.code === 'link_restored') drone.linkLost = false;
       toast(e.code === 'link_restored' ? 'ok' : 'warn', warningTitle(e.code), e.message, 9000);
       break;
+    case 'conditions':
+      drone.conditions = e.active;
+      break;
     case 'photo_saved':
       toast('ok', 'Foto salva', e.path);
       break;
@@ -84,6 +91,7 @@ function handleEvent(e: DroneEvent): void {
       drone.caps = null;
       drone.videoOn = false;
       drone.recording = null;
+      drone.conditions = [];
       break;
     case 'connected':
       drone.caps = e.caps;
@@ -92,6 +100,7 @@ function handleEvent(e: DroneEvent): void {
 }
 
 function warningTitle(code: string): string {
+  if (code in CONDITIONS) return CONDITIONS[code as Condition].label;
   return (
     {
       no_state: 'Telemetria bloqueada',
@@ -122,6 +131,7 @@ export async function connect(): Promise<void> {
   drone.conn = 'connecting';
   drone.error = null;
   drone.noState = drone.noVideo = drone.linkLost = false;
+  drone.conditions = [];
   drone.telemetry = null;
   batteryAlerts.clear();
   try {
@@ -145,6 +155,7 @@ export async function disconnect(): Promise<void> {
   drone.caps = null;
   drone.videoOn = false;
   drone.recording = null;
+  drone.conditions = [];
 }
 
 export async function startVideo(): Promise<void> {

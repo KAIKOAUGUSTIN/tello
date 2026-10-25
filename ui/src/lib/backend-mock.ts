@@ -3,9 +3,11 @@
 
 import { accessUnits, type AccessUnit } from '../video/h264';
 import { Emitter, type Backend, type FolderKind } from './backend';
+import { CONDITIONS } from './conditions';
 import type {
   Action,
   Capabilities,
+  Condition,
   Config,
   DroneEvent,
   LogEntry,
@@ -114,7 +116,21 @@ export class MockBackend implements Backend {
     this.record('rx', protocol === 'sdk' ? 'cmd' : 'app', protocol === 'sdk' ? 'ok' : 'conn_ack');
     this.timers.push(window.setInterval(() => this.tick(), 100));
     this.events.emit({ type: 'connected', caps: this.caps });
+    this.mockConditions();
     return this.caps;
+  }
+
+  /** `?conditions=low_light,wind` simula os avisos de condição de voo. */
+  private mockConditions(): void {
+    const list = new URLSearchParams(location.search).get('conditions');
+    if (!list) return;
+    const active = list.split(',').filter((c): c is Condition => c in CONDITIONS);
+    window.setTimeout(() => {
+      for (const c of active) {
+        this.events.emit({ type: 'warning', code: c, message: `Aviso simulado: ${CONDITIONS[c].label}.` });
+      }
+      this.events.emit({ type: 'conditions', active });
+    }, 1500);
   }
 
   async disconnect(): Promise<void> {
@@ -274,8 +290,10 @@ export class MockBackend implements Backend {
       flying: this.flying,
       mission_pad: null,
       battery_low: this.battery < 20,
-      light_strength: null,
+      light_strength: this.caps?.protocol === 'app' ? 0 : null,
       fast_mode: null,
+      wind: this.caps?.protocol === 'app' ? false : null,
+      wifi_interference: this.caps?.protocol === 'app' ? 0 : null,
     };
     this.events.emit({ type: 'telemetry', data: t });
     if (Math.random() < 0.3) this.record('rx', 'state', `h:${t.height_cm};bat:${t.battery};yaw:${t.yaw_deg};`);

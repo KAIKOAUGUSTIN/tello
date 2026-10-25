@@ -202,8 +202,49 @@ pub struct Telemetry {
     pub flying: Option<bool>,
     pub mission_pad: Option<MissionPad>,
     pub battery_low: Option<bool>,
+    /// Luz para a câmera de baixo (modo App): 0 = suficiente, 1 = pouca luz.
     pub light_strength: Option<u8>,
     pub fast_mode: Option<bool>,
+    /// Vento forte detectado pelo drone (modo App).
+    pub wind: Option<bool>,
+    /// Interferência no Wi-Fi, em % (modo App).
+    pub wifi_interference: Option<u8>,
+}
+
+/// Condição do ambiente ou do link que costuma deixar o voo instável.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Condition {
+    /// Pouca luz para a câmera de baixo: o drone perde a referência e deriva.
+    LowLight,
+    Wind,
+    WeakSignal,
+    /// Alto demais para a câmera de baixo enxergar o chão.
+    HighAltitude,
+}
+
+impl Condition {
+    pub fn warning(self) -> WarningCode {
+        match self {
+            Condition::LowLight => WarningCode::LowLight,
+            Condition::Wind => WarningCode::Wind,
+            Condition::WeakSignal => WarningCode::WeakSignal,
+            Condition::HighAltitude => WarningCode::HighAltitude,
+        }
+    }
+
+    pub fn message(self) -> &'static str {
+        match self {
+            Condition::LowLight => {
+                "Pouca luz para a câmera de baixo: o drone pode derivar. Voe num lugar mais claro e sobre um chão com textura."
+            }
+            Condition::Wind => "O drone detectou vento forte. Voe baixo e perto, ou pouse.",
+            Condition::WeakSignal => "Sinal Wi-Fi fraco. Aproxime-se do drone e evite paredes entre vocês.",
+            Condition::HighAltitude => {
+                "Acima de 6 m a câmera de baixo não enxerga o chão e o drone pode derivar. Desça um pouco."
+            }
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -218,6 +259,11 @@ pub enum WarningCode {
     LinkRestored,
     /// Pouso automático por bateria baixa.
     AutoLand,
+    /// Condições de voo (ver [`Condition`]).
+    LowLight,
+    Wind,
+    WeakSignal,
+    HighAltitude,
     Other,
 }
 
@@ -236,6 +282,10 @@ pub enum DroneEvent {
     Warning {
         code: WarningCode,
         message: String,
+    },
+    /// O conjunto de condições ativas mudou.
+    Conditions {
+        active: Vec<Condition>,
     },
     PhotoSaved {
         path: String,

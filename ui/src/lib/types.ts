@@ -94,17 +94,30 @@ export interface Telemetry {
   flying: boolean | null;
   mission_pad: MissionPad | null;
   battery_low: boolean | null;
+  /** 0 = luz suficiente, 1 = pouca luz (modo App). */
   light_strength: number | null;
   fast_mode: boolean | null;
+  wind: boolean | null;
+  wifi_interference: number | null;
 }
 
-export type WarningCode = 'no_state' | 'no_video' | 'link_lost' | 'link_restored' | 'auto_land' | 'other';
+export type Condition = 'low_light' | 'wind' | 'weak_signal' | 'high_altitude';
+
+export type WarningCode =
+  | 'no_state'
+  | 'no_video'
+  | 'link_lost'
+  | 'link_restored'
+  | 'auto_land'
+  | Condition
+  | 'other';
 
 export type DroneEvent =
   | { type: 'connected'; caps: Capabilities }
   | { type: 'disconnected'; reason: string }
   | { type: 'telemetry'; data: Telemetry }
   | { type: 'warning'; code: WarningCode; message: string }
+  | { type: 'conditions'; active: Condition[] }
   | { type: 'photo_saved'; path: string };
 
 export interface LogEntry {

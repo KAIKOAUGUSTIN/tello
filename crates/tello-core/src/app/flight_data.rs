@@ -80,15 +80,16 @@ impl FlightData {
         t.battery = Some(self.battery);
         t.battery_low = Some(self.battery_low || self.battery_lower);
         t.flying = Some(self.em_sky);
+        t.wind = Some(self.wind_state);
     }
 }
 
-/// Mensagem de Wi-Fi (0x1A): intensidade do sinal.
-pub fn parse_wifi(p: &[u8]) -> Option<u8> {
-    p.first().copied()
+/// Mensagem de Wi-Fi (0x1A): intensidade do sinal e interferência, em %.
+pub fn parse_wifi(p: &[u8]) -> Option<(u8, Option<u8>)> {
+    Some((*p.first()?, p.get(1).copied()))
 }
 
-/// Mensagem de luz (0x35): luminosidade do ambiente.
+/// Mensagem de luz (0x35), a cada ~2 s: 0 = luz suficiente, 1 = pouca luz.
 pub fn parse_light(p: &[u8]) -> Option<u8> {
     p.first().copied()
 }
@@ -119,6 +120,7 @@ mod tests {
             battery: 76,
             em_sky: true,
             battery_low: true,
+            wind_state: true,
             ..Default::default()
         };
         let parsed = FlightData::parse(&fd.encode()).unwrap();
@@ -130,6 +132,7 @@ mod tests {
         assert_eq!(t.battery, Some(76));
         assert_eq!(t.flying, Some(true));
         assert_eq!(t.battery_low, Some(true));
+        assert_eq!(t.wind, Some(true));
     }
 
     #[test]
@@ -141,6 +144,8 @@ mod tests {
     fn parses_small_messages() {
         assert_eq!(parse_version(b"\x0001.04.92.01\x00\x00"), Some("01.04.92.01".into()));
         assert_eq!(parse_alt_limit(&[0, 10, 0]), Some(10));
-        assert_eq!(parse_wifi(&[90, 0]), Some(90));
+        assert_eq!(parse_wifi(&[90, 12]), Some((90, Some(12))));
+        assert_eq!(parse_wifi(&[70]), Some((70, None)));
+        assert_eq!(parse_wifi(&[]), None);
     }
 }

@@ -6,7 +6,9 @@ use std::sync::{Arc, Mutex};
 use std::thread::sleep;
 use std::time::{Duration, Instant};
 
-use tello_core::{Action, Config, Drone, DroneEvent, Error, FlipDir, Protocol, Safety, SmartVideo, Sticks};
+use tello_core::{
+    Action, Condition, Config, Drone, DroneEvent, Error, FlipDir, Protocol, Safety, SmartVideo, Sticks, WarningCode,
+};
 use tello_sim::{Sim, SimConfig, FIXTURE_JPEG};
 
 const LOCALHOST: IpAddr = IpAddr::V4(Ipv4Addr::LOCALHOST);
@@ -189,4 +191,33 @@ fn emergency_stops_motors() {
     rig.wait_flying(true);
     rig.drone.action(&Action::Emergency).unwrap();
     wait_until("motores desligados", || !rig.sim.flying());
+}
+
+#[test]
+fn warns_about_poor_light_and_wind() {
+    let rig = Rig::connect();
+    rig.wait_for("luz informada", Duration::from_secs(2), |e| match e {
+        DroneEvent::Telemetry { data } if data.light_strength == Some(0) => Some(()),
+        _ => None,
+    });
+    rig.sim.set_light_poor(true);
+    rig.wait_for("aviso de pouca luz", Duration::from_secs(6), |e| match e {
+        DroneEvent::Warning { code: WarningCode::LowLight, .. } => Some(()),
+        _ => None,
+    });
+    // Vento só conta com o drone no ar.
+    rig.sim.set_wind(true);
+    rig.drone.action(&Action::Takeoff).unwrap();
+    rig.wait_flying(true);
+    rig.wait_for("condições com vento", Duration::from_secs(6), |e| match e {
+        DroneEvent::Conditions { active } if active == &[Condition::LowLight, Condition::Wind] => Some(()),
+        _ => None,
+    });
+    rig.sim.set_light_poor(false);
+    rig.wait_for("luz normalizada", Duration::from_secs(6), |e| match e {
+        DroneEvent::Conditions { active } if active == &[Condition::Wind] => Some(()),
+        _ => None,
+    });
+    let t = rig.drone.telemetry();
+    assert_eq!((t.wind, t.wifi_interference), (Some(true), Some(0)));
 }

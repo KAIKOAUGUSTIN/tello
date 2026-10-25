@@ -11,6 +11,7 @@
 pub mod app;
 pub mod blackbox;
 mod client;
+pub mod conditions;
 pub mod config;
 mod control;
 pub mod error;

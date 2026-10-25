@@ -6,6 +6,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use crate::blackbox::{Blackbox, Channel};
+use crate::conditions::ConditionMonitor;
 use crate::{DroneEvent, EventSink, Safety, Sticks, Telemetry, WarningCode};
 
 /// Margem abaixo da altura máxima a partir da qual subir é bloqueado.
@@ -21,6 +22,7 @@ pub(crate) struct Shared {
     safety: Mutex<Safety>,
     telemetry: Mutex<Telemetry>,
     link: Mutex<LinkState>,
+    conditions: Mutex<ConditionMonitor>,
     auto_land_pending: AtomicBool,
     auto_land_done: AtomicBool,
 }
@@ -44,6 +46,7 @@ impl Shared {
             safety: Mutex::new(safety),
             telemetry: Mutex::new(Telemetry::default()),
             link: Mutex::new(LinkState::default()),
+            conditions: Mutex::new(ConditionMonitor::new()),
             auto_land_pending: AtomicBool::new(false),
             auto_land_done: AtomicBool::new(false),
         }
@@ -141,7 +144,23 @@ impl Shared {
             self.warn(WarningCode::LinkRestored, "Telemetria voltou a chegar.");
         }
         self.check_battery(&snapshot);
+        self.check_conditions(&snapshot);
         self.emit(DroneEvent::Telemetry { data: snapshot });
+    }
+
+    fn check_conditions(&self, t: &Telemetry) {
+        let (update, active) = {
+            let mut monitor = self.conditions.lock().unwrap();
+            let update = monitor.update(t, self.is_flying(), Instant::now());
+            (update, monitor.active())
+        };
+        for c in update.warn {
+            self.warn(c.warning(), c.message());
+        }
+        if update.changed {
+            self.blackbox.info(Channel::Core, format!("condições ativas: {active:?}"));
+            self.emit(DroneEvent::Conditions { active });
+        }
     }
 
     fn check_battery(&self, t: &Telemetry) {

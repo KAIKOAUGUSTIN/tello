@@ -70,6 +70,11 @@ pub(crate) struct State {
     app_mode: bool,
     app_video_port: u16,
     fast: bool,
+    /// Ambiente: pouca luz para a câmera de baixo, vento forte.
+    light_poor: bool,
+    wind: bool,
+    /// Sinal e interferência do Wi-Fi, em %.
+    wifi: (u8, u8),
 }
 
 pub(crate) struct Inner {
@@ -115,6 +120,9 @@ impl Sim {
             app_mode: false,
             app_video_port: 0,
             fast: false,
+            light_poor: false,
+            wind: false,
+            wifi: (90, 0),
         };
         let inner = Arc::new(Inner {
             cfg,
@@ -175,6 +183,21 @@ impl Sim {
 
     pub fn set_battery(&self, pct: u8) {
         self.inner.state.lock().unwrap().battery = pct as f32;
+    }
+
+    /// Pouca luz para a câmera de baixo (modo App).
+    pub fn set_light_poor(&self, poor: bool) {
+        self.inner.state.lock().unwrap().light_poor = poor;
+    }
+
+    /// Vento forte (modo App).
+    pub fn set_wind(&self, wind: bool) {
+        self.inner.state.lock().unwrap().wind = wind;
+    }
+
+    /// Sinal e interferência do Wi-Fi, em % (`wifi?` no SDK).
+    pub fn set_wifi(&self, strength: u8, interference: u8) {
+        self.inner.state.lock().unwrap().wifi = (strength, interference);
     }
 
     pub fn stop(&mut self) {
@@ -338,7 +361,7 @@ impl Inner {
             "speed?" => self.reply(from, &format!("{}.0", self.state.lock().unwrap().speed)),
             "time?" => self.reply(from, &format!("{}s", self.state.lock().unwrap().motor_time_s as i32)),
             "height?" => self.reply(from, &format!("{}dm", (self.state.lock().unwrap().height_cm / 10.0) as i32)),
-            "wifi?" => self.reply(from, "90"),
+            "wifi?" => self.reply(from, &self.state.lock().unwrap().wifi.0.to_string()),
             "sdk?" => match &self.cfg.sdk_version {
                 Some(v) => self.reply(from, v),
                 None => self.reply(from, "unknown command: sdk?"),

@@ -1,6 +1,7 @@
 <script lang="ts">
   import { elapsed } from '../lib/clock.svelte';
   import { hold } from '../lib/commands.svelte';
+  import { CONDITIONS } from '../lib/conditions';
   import { drone, isFlying } from '../lib/drone.svelte';
   import { groundSpeed, meters, num } from '../lib/format';
   import { platform } from '../lib/platform.svelte';
@@ -51,6 +52,9 @@
     {#if drone.linkLost}
       <span class="banner danger"><Icon name="wifi-off" size={14} /> Sinal do drone perdido</span>
     {/if}
+    {#each drone.conditions as c (c)}
+      <span class="banner warn"><Icon name={CONDITIONS[c].icon} size={14} /> {CONDITIONS[c].label}</span>
+    {/each}
     {#if settings.beginner}
       <span class="banner info"><Icon name="shield" size={14} /> Modo iniciante</span>
     {/if}

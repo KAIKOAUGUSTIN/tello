@@ -51,6 +51,10 @@ export const icons = {
   'circle-stop': '<circle cx="12" cy="12" r="10" /><rect x="9" y="9" width="6" height="6" rx="1" />',
   crosshair: '<circle cx="12" cy="12" r="10" /><line x1="22" x2="18" y1="12" y2="12" /><line x1="6" x2="2" y1="12" y2="12" /><line x1="12" x2="12" y1="6" y2="2" /><line x1="12" x2="12" y1="22" y2="18" />',
   'arrow-down-to-line': '<path d="M12 17V3" /><path d="m6 11 6 6 6-6" /><path d="M19 21H5" />',
+  'sun-dim': '<circle cx="12" cy="12" r="4" /><path d="M12 4h.01" /><path d="M20 12h.01" /><path d="M12 20h.01" /><path d="M4 12h.01" /><path d="M17.657 6.343h.01" /><path d="M17.657 17.657h.01" /><path d="M6.343 17.657h.01" /><path d="M6.343 6.343h.01" />',
+  wind: '<path d="M12.8 19.6A2 2 0 1 0 14 16H2" /><path d="M17.5 8a2.5 2.5 0 1 1 2 4H2" /><path d="M9.8 4.4A2 2 0 1 1 11 8H2" />',
+  'wifi-low': '<path d="M12 20h.01" /><path d="M8.5 16.429a5 5 0 0 1 7 0" />',
+  mountain: '<path d="m8 3 4 8 5-5 5 15H2L8 3z" />',
 } as const;
 
 export type IconName = keyof typeof icons;
