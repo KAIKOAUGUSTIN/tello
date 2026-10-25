@@ -1,6 +1,7 @@
 <script lang="ts">
   // Botões grandes sobre o vídeo no layout compacto (celular): decolar/pousar e
-  // pairar à esquerda, foto e gravação à direita, como no app oficial.
+  // pairar à esquerda, foto e gravação à direita, como no app oficial. O seguir
+  // da IA fica ao lado do decolar/pousar, para não descer até os sticks.
   import { elapsed } from '../lib/clock.svelte';
   import { beginTakeoffHold, endTakeoffHold, hold, hover, land, photo, toggleRecording } from '../lib/commands.svelte';
   import { drone, isFlying } from '../lib/drone.svelte';
@@ -79,6 +80,15 @@
 
   .left {
     left: calc(12px + var(--safe-left));
+    display: grid;
+    grid-template-columns: 64px;
+    grid-auto-columns: 52px;
+    justify-items: center;
+    align-items: center;
+  }
+
+  .left .follow {
+    grid-area: 1 / 2;
   }
 
   .right {
