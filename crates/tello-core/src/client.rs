@@ -4,6 +4,7 @@ use crate::blackbox::{Blackbox, Channel};
 use crate::control::Shared;
 use crate::{
     app, sdk, Action, Capabilities, Config, DroneEvent, Error, EventSink, Protocol, Safety, Sticks, Telemetry,
+    VideoPolicy,
 };
 
 /// Interface comum aos drivers de cada protocolo.
@@ -34,6 +35,7 @@ impl Drone {
     ) -> Result<Drone, Error> {
         blackbox.info(Channel::Core, format!("conectando em {} (modo {protocol:?})", config.drone_ip));
         let shared = Arc::new(Shared::new(sink, blackbox, config.safety.clone()));
+        shared.set_video_policy(config.video);
         let driver: Box<dyn Driver> = match protocol {
             Protocol::Sdk => Box::new(sdk::driver::connect(&config, shared.clone())?),
             Protocol::App => Box::new(app::driver::connect(&config, shared.clone())?),
@@ -77,6 +79,16 @@ impl Drone {
 
     pub fn telemetry(&self) -> Telemetry {
         self.shared.telemetry()
+    }
+
+    pub fn video_policy(&self) -> VideoPolicy {
+        self.shared.video_policy()
+    }
+
+    /// Troca a política de taxa do vídeo; os drivers aplicam em até 1 s.
+    pub fn set_video_policy(&self, policy: VideoPolicy) {
+        self.shared.blackbox.info(Channel::Core, format!("vídeo: {policy:?}"));
+        self.shared.set_video_policy(policy);
     }
 
     pub fn is_flying(&self) -> bool {

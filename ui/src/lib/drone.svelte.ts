@@ -3,9 +3,9 @@
 import { getBackend, type Backend } from './backend';
 import { CONDITIONS } from './conditions';
 import { errorText } from './format';
-import { safetyFromSettings, settings } from './settings.svelte';
+import { safetyFromSettings, settings, videoFromSettings } from './settings.svelte';
 import { toast } from './toasts.svelte';
-import type { Action, Capabilities, Condition, DroneEvent, Telemetry } from './types';
+import type { Action, Capabilities, Condition, DroneEvent, Telemetry, VideoStats } from './types';
 
 export type ConnState = 'disconnected' | 'connecting' | 'connected';
 
@@ -18,6 +18,8 @@ interface DroneState {
   /** Rótulo da ação em andamento (ex.: "Decolando"). */
   busy: string | null;
   videoOn: boolean;
+  /** Resumo do vídeo no último segundo. */
+  video: VideoStats | null;
   error: string | null;
   noState: boolean;
   noVideo: boolean;
@@ -36,6 +38,7 @@ export const drone: DroneState = $state({
   linkLost: false,
   busy: null,
   videoOn: false,
+  video: null,
   error: null,
   noState: false,
   noVideo: false,
@@ -83,6 +86,9 @@ function handleEvent(e: DroneEvent): void {
     case 'conditions':
       drone.conditions = e.active;
       break;
+    case 'video_stats':
+      drone.video = { fps: e.fps, kbps: e.kbps, loss_pct: e.loss_pct, level: e.level };
+      break;
     case 'photo_saved':
       toast('ok', 'Foto salva', e.path);
       break;
@@ -90,6 +96,7 @@ function handleEvent(e: DroneEvent): void {
       drone.conn = 'disconnected';
       drone.caps = null;
       drone.videoOn = false;
+      drone.video = null;
       drone.recording = null;
       drone.conditions = [];
       break;
@@ -138,6 +145,7 @@ export async function connect(): Promise<void> {
     const caps = await b.connect(settings.protocol, {
       drone_ip: settings.droneIp.trim(),
       safety: safetyFromSettings(settings),
+      video: videoFromSettings(settings),
     });
     drone.caps = caps;
     drone.conn = 'connected';
@@ -154,6 +162,7 @@ export async function disconnect(): Promise<void> {
   drone.conn = 'disconnected';
   drone.caps = null;
   drone.videoOn = false;
+  drone.video = null;
   drone.recording = null;
   drone.conditions = [];
 }
@@ -163,7 +172,10 @@ export async function startVideo(): Promise<void> {
 }
 
 export async function stopVideo(): Promise<void> {
-  if (await run({ type: 'stream_off' }, null)) drone.videoOn = false;
+  if (await run({ type: 'stream_off' }, null)) {
+    drone.videoOn = false;
+    drone.video = null;
+  }
 }
 
 /** Executa uma ação; erros viram toasts. `label` mostra um indicador de progresso. */
@@ -190,6 +202,10 @@ export function emergency(): void {
 
 export function applySafety(): void {
   backend?.setSafety(safetyFromSettings(settings));
+}
+
+export function applyVideo(): void {
+  backend?.setVideoPolicy(videoFromSettings(settings));
 }
 
 export async function landAndQuit(): Promise<void> {

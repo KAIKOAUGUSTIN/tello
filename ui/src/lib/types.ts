@@ -118,6 +118,7 @@ export type DroneEvent =
   | { type: 'telemetry'; data: Telemetry }
   | { type: 'warning'; code: WarningCode; message: string }
   | { type: 'conditions'; active: Condition[] }
+  | ({ type: 'video_stats' } & VideoStats)
   | { type: 'photo_saved'; path: string };
 
 export interface LogEntry {
@@ -135,9 +136,25 @@ export interface Safety {
   stick_timeout_ms: number;
 }
 
+/** Níveis do drone: 0 = automático, 1 = 1 Mbps, 2 = 1,5, 3 = 2, 4 = 3 e 5 = 4 Mbps. */
+export interface VideoPolicy {
+  /** Baixa a taxa quando o vídeo perde pacotes (modo App); `level` vira o teto. */
+  adaptive: boolean;
+  level: number;
+}
+
+export interface VideoStats {
+  fps: number;
+  kbps: number;
+  /** Só no modo App. */
+  loss_pct: number | null;
+  level: number | null;
+}
+
 export interface Config {
   drone_ip: string;
   safety: Safety;
+  video: VideoPolicy;
 }
 
 export interface NetworkCheck {

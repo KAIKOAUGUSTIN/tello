@@ -1,12 +1,12 @@
 <script lang="ts">
-  import { applySafety, drone, run } from '../lib/drone.svelte';
+  import { applySafety, applyVideo, drone } from '../lib/drone.svelte';
+  import { mbps } from '../lib/format';
   import { platform } from '../lib/platform.svelte';
   import { resetSettings, saveSettings, settings } from '../lib/settings.svelte';
   import { input } from '../input/mixer.svelte';
   import Icon from './Icon.svelte';
 
   let { open = $bindable(false) }: { open?: boolean } = $props();
-  let bitrate = $state(0);
   // O WebView do Android não tem a Gamepad API; no iOS o controle funciona.
   const noGamepad = $derived(platform.os === 'android' && !input.gamepad);
 
@@ -15,8 +15,13 @@
     applySafety();
   }
 
-  function setBitrate() {
-    void run({ type: 'set_video_bitrate', level: bitrate }, null);
+  // Só o modo App informa a perda de pacotes, que o ajuste automático usa.
+  const adaptive = $derived(settings.adaptiveVideo && drone.caps?.protocol === 'app');
+
+  function videoChanged() {
+    if (settings.adaptiveVideo && settings.videoLevel === 0) settings.videoLevel = 4;
+    saveSettings();
+    applyVideo();
   }
 
   const bars = $derived([
@@ -113,13 +118,26 @@
           <input type="checkbox" bind:checked={settings.autoStartVideo} onchange={changed} />
         </label>
         {#if drone.caps?.video_bitrate}
+          {#if drone.caps.protocol === 'app'}
+            <label class="row">
+              <span>Ajustar a qualidade sozinho <small>baixa a taxa quando o Wi-Fi perde pacotes</small></span>
+              <input type="checkbox" bind:checked={settings.adaptiveVideo} onchange={videoChanged} />
+            </label>
+          {/if}
           <div class="row">
-            <span>Taxa de vídeo</span>
-            <select bind:value={bitrate} onchange={setBitrate}>
-              <option value={0}>Automática</option>
-              {#each [1, 2, 3, 4, 5] as m (m)}<option value={m}>{m} Mbps</option>{/each}
+            <span>{adaptive ? 'Qualidade máxima' : 'Taxa de vídeo'}</span>
+            <select bind:value={settings.videoLevel} onchange={videoChanged}>
+              {#if !adaptive}<option value={0}>Automática (drone)</option>{/if}
+              {#each [1, 2, 3, 4, 5] as level (level)}<option value={level}>{mbps(level)}</option>{/each}
             </select>
           </div>
+        {/if}
+        {#if drone.video}
+          <span class="muted">
+            Agora: {drone.video.fps} fps · {(drone.video.kbps / 1000).toLocaleString('pt-BR', { maximumFractionDigits: 1 })} Mbps
+            {#if drone.video.loss_pct !== null}· perda {Math.round(drone.video.loss_pct)}%{/if}
+            {#if drone.video.level !== null}· limite {mbps(drone.video.level)}{/if}
+          </span>
         {/if}
       </section>
 

@@ -12,7 +12,7 @@ use crate::client::Driver;
 use crate::control::Shared;
 use crate::net::{bind_udp, is_timeout, set_poll_timeout};
 use crate::video::NalAssembler;
-use crate::{Action, Capabilities, Config, DroneEvent, Error, WarningCode};
+use crate::{Action, Capabilities, Config, DroneEvent, Error, VideoPolicy, VideoStats, WarningCode};
 
 /// Intervalo do loop de controle (20 Hz).
 const TICK: Duration = Duration::from_millis(50);
@@ -45,6 +45,8 @@ struct Inner {
     paused: AtomicBool,
     caps: Mutex<Capabilities>,
     video: Mutex<VideoWatch>,
+    /// Nível de taxa fixado pelo app (`setbitrate`, SDK 3).
+    video_level: Mutex<Option<u8>>,
 }
 
 #[derive(Default)]
@@ -72,6 +74,7 @@ pub(crate) fn connect(cfg: &Config, shared: Arc<Shared>) -> Result<SdkDriver, Er
         paused: AtomicBool::new(false),
         caps: Mutex::new(capabilities(None, None)),
         video: Mutex::new(VideoWatch::default()),
+        video_level: Mutex::new(None),
     });
 
     let driver = SdkDriver { inner: inner.clone(), threads: Mutex::new(Vec::new()) };
@@ -249,8 +252,10 @@ impl Inner {
 
     fn poll_loop(&self) {
         let mut last = Instant::now();
+        let mut applied: Option<VideoPolicy> = None;
         while self.shared.running() {
             thread::sleep(Duration::from_millis(100));
+            self.apply_video_policy(&mut applied);
             if last.elapsed() < WIFI_POLL || self.paused.load(Ordering::Relaxed) {
                 continue;
             }
@@ -258,6 +263,27 @@ impl Inner {
             if let Some(w) = self.try_query("wifi?").and_then(|r| r.parse::<u8>().ok()) {
                 self.shared.patch_telemetry(|t| t.wifi_strength = Some(w));
             }
+        }
+    }
+
+    /// Sem a perda de pacotes o modo adaptativo não funciona aqui: só o nível
+    /// fixo é aplicado, e só no SDK 3, que tem `setbitrate`.
+    fn apply_video_policy(&self, applied: &mut Option<VideoPolicy>) {
+        let policy = self.shared.video_policy();
+        if *applied == Some(policy) {
+            return;
+        }
+        let first = applied.is_none();
+        *applied = Some(policy);
+        let caps = self.caps.lock().unwrap().clone();
+        if !caps.video_bitrate || policy.adaptive || (first && policy.level == 0) {
+            return;
+        }
+        let level = policy.level;
+        let result = commands::translate(&Action::SetVideoBitrate { level }, &caps).and_then(|c| self.send(&c));
+        match result {
+            Ok(_) => *self.video_level.lock().unwrap() = (level != 0).then_some(level),
+            Err(e) => self.shared.blackbox.info(Channel::Cmd, format!("taxa do vídeo não aplicada: {e}")),
         }
     }
 
@@ -309,7 +335,7 @@ impl Inner {
     fn video_loop(&self, sock: UdpSocket) {
         let mut buf = vec![0u8; 4096];
         let mut asm = NalAssembler::new();
-        let mut stats = VideoStats::default();
+        let mut stats = VideoWindow::default();
         while self.shared.running() {
             match sock.recv_from(&mut buf) {
                 Ok((n, _)) => {
@@ -330,7 +356,11 @@ impl Inner {
                 Err(e) if is_timeout(&e) => {}
                 Err(_) => thread::sleep(Duration::from_millis(100)),
             }
-            stats.maybe_log(&self.shared, &asm);
+            if stats.since.elapsed() >= Duration::from_secs(1) {
+                let streaming = self.video.lock().unwrap().stream_on_at.is_some();
+                stats.close(&self.shared, &asm, streaming.then(|| *self.video_level.lock().unwrap()));
+                stats = VideoWindow::default();
+            }
         }
     }
 
@@ -406,7 +436,8 @@ impl Drop for PauseGuard<'_> {
     }
 }
 
-struct VideoStats {
+/// Contagem do vídeo em uma janela de 1 s.
+struct VideoWindow {
     since: Instant,
     packets: usize,
     bytes: usize,
@@ -414,16 +445,23 @@ struct VideoStats {
     keyframes: usize,
 }
 
-impl Default for VideoStats {
+impl Default for VideoWindow {
     fn default() -> Self {
-        VideoStats { since: Instant::now(), packets: 0, bytes: 0, frames: 0, keyframes: 0 }
+        VideoWindow { since: Instant::now(), packets: 0, bytes: 0, frames: 0, keyframes: 0 }
     }
 }
 
-impl VideoStats {
-    fn maybe_log(&mut self, shared: &Shared, asm: &NalAssembler) {
-        if self.since.elapsed() < Duration::from_secs(1) {
-            return;
+impl VideoWindow {
+    /// Registra a janela na caixa-preta e, com o vídeo ligado (`streaming` com
+    /// o nível de taxa), publica o resumo.
+    fn close(&self, shared: &Shared, asm: &NalAssembler, streaming: Option<Option<u8>>) {
+        if let Some(level) = streaming {
+            shared.emit(DroneEvent::VideoStats(VideoStats {
+                fps: self.frames.min(u16::MAX as usize) as u16,
+                kbps: (self.bytes * 8 / 1000) as u32,
+                loss_pct: None,
+                level,
+            }));
         }
         if self.packets > 0 {
             shared.blackbox.record(
@@ -440,6 +478,5 @@ impl VideoStats {
                 None,
             );
         }
-        *self = VideoStats::default();
     }
 }

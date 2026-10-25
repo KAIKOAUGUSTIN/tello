@@ -112,6 +112,7 @@ Quem segura o drone no ar é o controlador de voo dele, com a IMU, a câmera de 
   - **Vento forte** (modo App), detectado pelo próprio drone.
   - **Sinal Wi-Fi fraco**, abaixo de 30%. No modo SDK o app consulta o sinal a cada 5 s.
   - **Acima de 6 m**: a câmera de baixo deixa de enxergar o chão.
+- **Qualidade de vídeo adaptativa** (modo App, ligada por padrão). O app mede os pacotes de vídeo perdidos. Se a perda passa de 5% por 2 s, ele baixa a taxa do drone um nível, até 1 Mbps; depois de 15 s sem perda, sobe de novo até o teto escolhido em **Configurações → Vídeo**. A cada perda o app também pede um quadro-chave na hora, para a imagem se recompor rápido. Os níveis do drone são 1, 1,5, 2, 3 e 4 Mbps. No modo SDK, só o Tello EDU e o RoboMaster TT (SDK 3) aceitam taxa fixa.
 
 ### Onde ficam os arquivos
 

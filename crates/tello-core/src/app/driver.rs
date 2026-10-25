@@ -18,12 +18,17 @@ use crate::control::Shared;
 use crate::net::{bind_udp, is_timeout, set_poll_timeout};
 use crate::util::{now_utc, utc_stamp};
 use crate::video::NalAssembler;
-use crate::{Action, Capabilities, Config, DroneEvent, Error, Model, Protocol, Sticks, WarningCode};
+use crate::video_link::{loss_pct, BitrateGovernor, FrameGap, LEVEL_MBPS};
+use crate::{
+    Action, Capabilities, Config, DroneEvent, Error, Model, Protocol, Sticks, VideoPolicy, VideoStats, WarningCode,
+};
 
 /// Sticks a 50 Hz, como o app oficial.
 const TICK: Duration = Duration::from_millis(20);
 const ACK_TIMEOUT: Duration = Duration::from_millis(800);
 const SPS_INTERVAL: Duration = Duration::from_secs(1);
+/// Depois de uma perda, um keyframe é pedido na hora, com este intervalo mínimo.
+const KEYFRAME_RETRY: Duration = Duration::from_millis(250);
 
 const NO_STATE_HINT: &str = "O drone aceitou a conexão, mas a telemetria não chega. \
      Verifique o Firewall do Windows para redes públicas.";
@@ -44,6 +49,8 @@ struct Inner {
     seq: AtomicU16,
     fast: AtomicBool,
     video_on: AtomicBool,
+    /// O vídeo perdeu pacotes: pedir um keyframe para a imagem se recompor.
+    keyframe_wanted: AtomicBool,
     cmd_lock: Mutex<()>,
     acks: Mutex<Receiver<(u16, Vec<u8>)>>,
     ack_tx: SyncSender<(u16, Vec<u8>)>,
@@ -90,6 +97,7 @@ pub(crate) fn connect(cfg: &Config, shared: Arc<Shared>) -> Result<AppDriver, Er
         seq: AtomicU16::new(0),
         fast: AtomicBool::new(false),
         video_on: AtomicBool::new(false),
+        keyframe_wanted: AtomicBool::new(false),
         cmd_lock: Mutex::new(()),
         acks: Mutex::new(ack_rx),
         ack_tx,
@@ -410,45 +418,100 @@ impl Inner {
     fn video_loop(&self, sock: UdpSocket) {
         let mut buf = vec![0u8; 4096];
         let mut asm = NalAssembler::new();
-        let (mut packets, mut bytes, mut frames, mut last_hdr) = (0usize, 0usize, 0usize, [0u8; 2]);
-        let mut since = Instant::now();
+        let mut gap = FrameGap::new();
+        let mut window = VideoWindow::new();
+        let mut rate = RateControl::default();
         while self.shared.running() {
             match sock.recv_from(&mut buf) {
                 Ok((n, _)) if n > 2 => {
                     self.video_watch.lock().unwrap().1 = Some(Instant::now());
-                    if !self.video_on.load(Ordering::Relaxed) {
-                        continue;
-                    }
-                    // Os 2 primeiros bytes são um cabeçalho próprio (sequência do frame/fragmento).
-                    last_hdr = [buf[0], buf[1]];
-                    packets += 1;
-                    bytes += n;
-                    for f in asm.push(&buf[2..n]) {
-                        frames += 1;
-                        self.shared.emit(DroneEvent::Video(f));
+                    if self.video_on.load(Ordering::Relaxed) {
+                        // Os 2 primeiros bytes são um cabeçalho próprio (sequência do frame/fragmento).
+                        window.last_hdr = [buf[0], buf[1]];
+                        let lost = gap.push(window.last_hdr);
+                        if lost > 0 {
+                            self.keyframe_wanted.store(true, Ordering::Relaxed);
+                        }
+                        window.packets += 1;
+                        window.lost += lost;
+                        window.bytes += n;
+                        for f in asm.push(&buf[2..n]) {
+                            window.frames += 1;
+                            self.shared.emit(DroneEvent::Video(f));
+                        }
                     }
                 }
                 Ok(_) => {}
                 Err(e) if is_timeout(&e) => {}
                 Err(_) => thread::sleep(Duration::from_millis(100)),
             }
-            if since.elapsed() >= Duration::from_secs(1) {
-                if packets > 0 {
-                    self.shared.blackbox.record(
-                        Dir::Rx,
-                        Channel::Video,
-                        format!(
-                            "{packets} pacotes, {} KB, {frames} frames, último cabeçalho {}",
-                            bytes / 1024,
-                            to_hex(&last_hdr)
-                        ),
-                        None,
-                    );
-                }
-                (packets, bytes, frames) = (0, 0, 0);
-                since = Instant::now();
+            if window.since.elapsed() >= Duration::from_secs(1) {
+                self.close_window(&window, &mut rate);
+                window = VideoWindow::new();
             }
         }
+    }
+
+    /// Fecha a janela de 1 s: aplica a política de taxa, ajusta a taxa pela
+    /// perda e publica o resumo do vídeo.
+    fn close_window(&self, w: &VideoWindow, rate: &mut RateControl) {
+        let policy = self.shared.video_policy();
+        if rate.applied != Some(policy) {
+            let first = rate.applied.is_none();
+            rate.applied = Some(policy);
+            if policy.adaptive {
+                let governor = BitrateGovernor::new(policy.max_level());
+                rate.level = Some(governor.level());
+                self.set_video_rate(governor.level());
+                rate.governor = Some(governor);
+            } else {
+                rate.governor = None;
+                rate.level = (policy.level != 0).then_some(policy.level);
+                // Na conexão, o nível 0 deixa o drone como está.
+                if !(first && policy.level == 0) {
+                    self.set_video_rate(policy.level);
+                }
+            }
+        }
+        if w.packets > 0 {
+            self.shared.blackbox.record(
+                Dir::Rx,
+                Channel::Video,
+                format!(
+                    "{} pacotes ({} perdidos), {} KB, {} frames, último cabeçalho {}",
+                    w.packets,
+                    w.lost,
+                    w.bytes / 1024,
+                    w.frames,
+                    to_hex(&w.last_hdr)
+                ),
+                None,
+            );
+        }
+        if !self.video_on.load(Ordering::Relaxed) {
+            return;
+        }
+        let loss = loss_pct(w.packets, w.lost);
+        if let Some(level) = rate.governor.as_mut().and_then(|g| g.tick(w.packets, w.lost)) {
+            let from = rate.level.map_or(0.0, |l| LEVEL_MBPS[l as usize]);
+            self.shared.blackbox.info(
+                Channel::Video,
+                format!("taxa do vídeo: {from} → {} Mbps (perda {loss:.0}%)", LEVEL_MBPS[level as usize]),
+            );
+            rate.level = Some(level);
+            self.set_video_rate(level);
+        }
+        self.shared.emit(DroneEvent::VideoStats(VideoStats {
+            fps: w.frames.min(u16::MAX as u32) as u16,
+            kbps: (w.bytes * 8 / 1000) as u32,
+            loss_pct: Some(loss),
+            level: rate.level,
+        }));
+    }
+
+    /// Sem esperar a confirmação: roda na thread do vídeo.
+    fn set_video_rate(&self, level: u8) {
+        self.send(Packet::new(kind::SET, id::VIDEO_RATE, vec![level]));
     }
 
     fn control_loop(self: &Arc<Self>) {
@@ -488,8 +551,11 @@ impl Inner {
                 last_logged = summary;
                 last_log = Instant::now();
             }
-            if self.video_on.load(Ordering::Relaxed) && last_sps.elapsed() >= SPS_INTERVAL {
-                // Pede SPS/PPS/keyframe periodicamente para o vídeo (re)começar rápido.
+            // Pede SPS/PPS/keyframe periodicamente para o vídeo (re)começar rápido,
+            // e logo depois de uma perda, para a imagem não ficar borrada.
+            let after_loss = self.keyframe_wanted.load(Ordering::Relaxed) && last_sps.elapsed() >= KEYFRAME_RETRY;
+            if self.video_on.load(Ordering::Relaxed) && (after_loss || last_sps.elapsed() >= SPS_INTERVAL) {
+                self.keyframe_wanted.store(false, Ordering::Relaxed);
                 self.send(Packet::new(kind::DATA2, id::VIDEO_SPS_PPS, vec![]));
                 last_sps = Instant::now();
             }
@@ -522,4 +588,28 @@ impl Inner {
             self.shared.warn(WarningCode::NoVideo, NO_VIDEO_HINT);
         }
     }
+}
+
+/// Contagem do vídeo em uma janela de 1 s.
+struct VideoWindow {
+    since: Instant,
+    packets: u32,
+    lost: u32,
+    bytes: usize,
+    frames: u32,
+    last_hdr: [u8; 2],
+}
+
+impl VideoWindow {
+    fn new() -> Self {
+        VideoWindow { since: Instant::now(), packets: 0, lost: 0, bytes: 0, frames: 0, last_hdr: [0; 2] }
+    }
+}
+
+/// Estado da taxa do vídeo: a política aplicada e, no modo adaptativo, quem decide o nível.
+#[derive(Default)]
+struct RateControl {
+    applied: Option<VideoPolicy>,
+    governor: Option<BitrateGovernor>,
+    level: Option<u8>,
 }

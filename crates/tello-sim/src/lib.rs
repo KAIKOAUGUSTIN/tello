@@ -75,6 +75,10 @@ pub(crate) struct State {
     wind: bool,
     /// Sinal e interferência do Wi-Fi, em %.
     wifi: (u8, u8),
+    /// Pacotes de vídeo descartados, em %.
+    video_loss: u8,
+    /// Último nível de taxa pedido (VIDEO_RATE no modo App, `setbitrate` no SDK).
+    video_rate: Option<u8>,
 }
 
 pub(crate) struct Inner {
@@ -123,6 +127,8 @@ impl Sim {
             light_poor: false,
             wind: false,
             wifi: (90, 0),
+            video_loss: 0,
+            video_rate: None,
         };
         let inner = Arc::new(Inner {
             cfg,
@@ -193,6 +199,16 @@ impl Sim {
     /// Vento forte (modo App).
     pub fn set_wind(&self, wind: bool) {
         self.inner.state.lock().unwrap().wind = wind;
+    }
+
+    /// Descarta esta porcentagem dos pacotes de vídeo.
+    pub fn set_video_loss(&self, pct: u8) {
+        self.inner.state.lock().unwrap().video_loss = pct.min(100);
+    }
+
+    /// Último nível de taxa do vídeo pedido pelo cliente.
+    pub fn video_rate(&self) -> Option<u8> {
+        self.inner.state.lock().unwrap().video_rate
     }
 
     /// Sinal e interferência do Wi-Fi, em % (`wifi?` no SDK).
@@ -310,6 +326,13 @@ impl Inner {
                 self.state.lock().unwrap().streaming = false;
                 self.reply(from, "ok");
             }
+            "setbitrate" if self.cfg.sdk_version.as_deref() == Some("30") => match arg {
+                Some(v @ 0..=5) => {
+                    self.state.lock().unwrap().video_rate = Some(v as u8);
+                    self.reply(from, "ok");
+                }
+                _ => self.reply(from, "out of range"),
+            },
             "stop" if self.cfg.sdk_version.is_some() => {
                 self.state.lock().unwrap().rc = [0; 4];
                 self.reply(from, "ok");
@@ -418,12 +441,18 @@ impl Inner {
         };
         let frames = fixture_frames();
         let mut i = 0;
+        // Gerador simples (LCG) para escolher os pacotes perdidos sem depender de `rand`.
+        let mut seed = 0x2545_f491_u32;
+        let mut drop_packet = |loss: u8| {
+            seed = seed.wrapping_mul(1_103_515_245).wrapping_add(12_345);
+            loss > 0 && ((seed >> 16) % 100) < loss as u32
+        };
         let frame_time = Duration::from_micros(33_333);
         let mut next = Instant::now();
         while self.running() {
-            let (streaming, client, app, app_port) = {
+            let (streaming, client, app, app_port, loss) = {
                 let s = self.state.lock().unwrap();
-                (s.streaming, s.client, s.app_mode, s.app_video_port)
+                (s.streaming, s.client, s.app_mode, s.app_video_port, s.video_loss)
             };
             match (streaming, client) {
                 (true, Some(c)) if !frames.is_empty() => {
@@ -435,11 +464,15 @@ impl Inner {
                             let last = if k + 1 == chunks.len() { 0x80 } else { 0 };
                             let mut pkt = vec![i as u8, k as u8 | last];
                             pkt.extend_from_slice(chunk);
-                            let _ = out.send_to(&pkt, (c.ip(), app_port));
+                            if !drop_packet(loss) {
+                                let _ = out.send_to(&pkt, (c.ip(), app_port));
+                            }
                         }
                     } else {
                         for chunk in frame.chunks(VIDEO_CHUNK) {
-                            let _ = out.send_to(chunk, (c.ip(), self.cfg.video_port));
+                            if !drop_packet(loss) {
+                                let _ = out.send_to(chunk, (c.ip(), self.cfg.video_port));
+                            }
                         }
                     }
                     i += 1;

@@ -14,7 +14,9 @@ use tauri::ipc::{Channel, InvokeBody, InvokeResponseBody, Request};
 use tauri::{AppHandle, Emitter, Manager, State, WindowEvent};
 use tello_core::mp4::Mp4Writer;
 use tello_core::net::{self, NetworkCheck};
-use tello_core::{Action, Blackbox, Capabilities, Config, Drone, DroneEvent, Entry, Protocol, Safety, Sticks};
+use tello_core::{
+    Action, Blackbox, Capabilities, Config, Drone, DroneEvent, Entry, Protocol, Safety, Sticks, VideoPolicy,
+};
 
 type CmdResult<T> = Result<T, String>;
 type VideoChannel = Arc<Mutex<Option<Channel<InvokeResponseBody>>>>;
@@ -136,6 +138,13 @@ fn set_sticks(state: State<'_, AppState>, sticks: Sticks) {
 fn set_safety(state: State<'_, AppState>, safety: Safety) {
     if let Some(d) = state.drone.lock().unwrap().as_ref() {
         d.set_safety(safety);
+    }
+}
+
+#[tauri::command]
+fn set_video_policy(state: State<'_, AppState>, policy: VideoPolicy) {
+    if let Some(d) = state.drone.lock().unwrap().as_ref() {
+        d.set_video_policy(policy);
     }
 }
 
@@ -348,6 +357,7 @@ pub fn run() {
             action,
             set_sticks,
             set_safety,
+            set_video_policy,
             set_video_channel,
             log_snapshot,
             export_log,

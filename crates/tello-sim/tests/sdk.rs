@@ -6,7 +6,8 @@ use std::thread::sleep;
 use std::time::{Duration, Instant};
 
 use tello_core::{
-    Action, Condition, Config, Drone, DroneEvent, Error, FlipDir, Model, Protocol, Safety, Sticks, WarningCode,
+    Action, Condition, Config, Drone, DroneEvent, Error, FlipDir, Model, Protocol, Safety, Sticks, VideoPolicy,
+    WarningCode,
 };
 use tello_sim::{Sim, SimConfig};
 
@@ -230,4 +231,24 @@ fn polls_wifi_and_warns_when_weak() {
         Duration::from_secs(1),
         |e| matches!(e, DroneEvent::Conditions { active } if active == &[Condition::WeakSignal]),
     );
+}
+
+#[test]
+fn applies_fixed_bitrate_on_sdk3_only() {
+    let mut rig = Rig::new(|c| c.sdk_version = Some("30".into()));
+    rig.config.video = VideoPolicy { adaptive: false, level: 3 };
+    let drone = rig.connect().unwrap();
+    wait_until("setbitrate", Duration::from_secs(3), || rig.sim.video_rate() == Some(3));
+    drone.action(&Action::StreamOn).unwrap();
+    rig.wait_for(
+        "resumo do vídeo",
+        Duration::from_secs(3),
+        |e| matches!(e, DroneEvent::VideoStats(s) if s.fps > 0 && s.loss_pct.is_none() && s.level == Some(3)),
+    );
+
+    // Sem perda medida, o modo adaptativo não mexe na taxa no SDK.
+    let rig = Rig::new(|c| c.sdk_version = Some("30".into()));
+    let _drone = rig.connect().unwrap();
+    sleep(Duration::from_millis(600));
+    assert_eq!(rig.sim.video_rate(), None);
 }

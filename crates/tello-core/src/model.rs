@@ -126,7 +126,7 @@ pub enum Action {
     SetMaxHeight {
         m: u16,
     },
-    /// 0 = automático, 1..5 = 1..5 Mbps.
+    /// 0 = automático; 1..5 = 1, 1,5, 2, 3 e 4 Mbps.
     SetVideoBitrate {
         level: u8,
     },
@@ -287,12 +287,24 @@ pub enum DroneEvent {
     Conditions {
         active: Vec<Condition>,
     },
+    /// Resumo do vídeo no último segundo (enquanto o vídeo está ligado).
+    VideoStats(VideoStats),
     PhotoSaved {
         path: String,
     },
     /// Frame H.264 completo (Annex B). Não é serializado: vai por canal binário.
     #[serde(skip)]
     Video(VideoFrame),
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Serialize)]
+pub struct VideoStats {
+    pub fps: u16,
+    pub kbps: u32,
+    /// Pacotes perdidos, em % (só no modo App, que numera os pacotes).
+    pub loss_pct: Option<f32>,
+    /// Nível de taxa em uso (1..5), quando foi o app que escolheu.
+    pub level: Option<u8>,
 }
 
 pub type EventSink = Arc<dyn Fn(DroneEvent) + Send + Sync>;

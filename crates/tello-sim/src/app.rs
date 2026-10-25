@@ -106,7 +106,11 @@ impl Inner {
                 ack(if flying { 0 } else { 1 });
                 self.send_app(from, id::SMART_VIDEO_STATUS, vec![p.payload.first().copied().unwrap_or(0)]);
             }
-            id::BOUNCE | id::SET_ALT_LIMIT | id::VIDEO_RATE | id::EXPOSURE | id::VIDEO_MODE => ack(0),
+            id::VIDEO_RATE => {
+                self.state.lock().unwrap().video_rate = p.payload.first().copied();
+                ack(0);
+            }
+            id::BOUNCE | id::SET_ALT_LIMIT | id::EXPOSURE | id::VIDEO_MODE => ack(0),
             id::VERSION => {
                 let mut v = vec![0];
                 v.extend_from_slice(b"01.04.92.01\0");

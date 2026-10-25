@@ -4,6 +4,7 @@
 import { accessUnits, type AccessUnit } from '../video/h264';
 import { Emitter, type Backend, type FolderKind } from './backend';
 import { CONDITIONS } from './conditions';
+import { VIDEO_MBPS } from './format';
 import type {
   Action,
   Capabilities,
@@ -19,6 +20,7 @@ import type {
   Sticks,
   Telemetry,
   VideoPacket,
+  VideoPolicy,
 } from './types';
 import { NEUTRAL } from './types';
 
@@ -93,6 +95,8 @@ export class MockBackend implements Backend {
   private frames: AccessUnit[] | null = null;
   private timers: number[] = [];
   private videoTimer = 0;
+  private statsTimer = 0;
+  private videoPolicy: VideoPolicy = { adaptive: true, level: 4 };
   private frameIndex = 0;
   private seq = 0;
 
@@ -111,6 +115,7 @@ export class MockBackend implements Backend {
     this.record('info', 'core', `conectando em ${config.drone_ip} (modo ${protocol}, simulado)`);
     await delay(600);
     this.safety = config.safety;
+    this.videoPolicy = config.video;
     this.caps = capsFor(protocol);
     this.record('tx', protocol === 'sdk' ? 'cmd' : 'app', protocol === 'sdk' ? 'command' : 'conn_req:\\x96\\x17');
     this.record('rx', protocol === 'sdk' ? 'cmd' : 'app', protocol === 'sdk' ? 'ok' : 'conn_ack');
@@ -204,6 +209,10 @@ export class MockBackend implements Backend {
 
   setSafety(safety: Safety): void {
     this.safety = safety;
+  }
+
+  setVideoPolicy(policy: VideoPolicy): void {
+    this.videoPolicy = policy;
   }
 
   onEvent(cb: (e: DroneEvent) => void) {
@@ -313,11 +322,28 @@ export class MockBackend implements Backend {
       this.frameIndex++;
       this.video.emit({ data: f.data, key: f.key, hasSps: f.hasSps, seq: ++this.seq });
     }, 1000 / 30);
+    this.statsTimer = window.setInterval(() => this.videoStats(), 1000);
+  }
+
+  /** Resumo do vídeo como o do tello-core; `?videoloss=8` simula perda no modo App. */
+  private videoStats(): void {
+    const app = this.caps?.protocol === 'app';
+    const p = this.videoPolicy;
+    const loss = Number(new URLSearchParams(location.search).get('videoloss') ?? 0);
+    const level = app && (p.adaptive || p.level > 0) ? Math.max(1, p.level - (loss > 5 ? 1 : 0)) : null;
+    this.events.emit({
+      type: 'video_stats',
+      fps: 30,
+      kbps: level ? Math.round(VIDEO_MBPS[level] * 900) : 2400,
+      loss_pct: app ? loss : null,
+      level,
+    });
   }
 
   private stopVideo(): void {
     this.streaming = false;
     clearInterval(this.videoTimer);
+    clearInterval(this.statsTimer);
   }
 
   private record(dir: LogEntry['dir'], ch: LogEntry['ch'], text: string): void {

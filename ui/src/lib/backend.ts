@@ -11,6 +11,7 @@ import type {
   Safety,
   Sticks,
   VideoPacket,
+  VideoPolicy,
 } from './types';
 
 export type FolderKind = 'photos' | 'videos' | 'logs';
@@ -26,6 +27,7 @@ export interface Backend {
   action(action: Action): Promise<string>;
   setSticks(sticks: Sticks): void;
   setSafety(safety: Safety): void;
+  setVideoPolicy(policy: VideoPolicy): void;
   onEvent(cb: (e: DroneEvent) => void): Unsubscribe;
   onVideo(cb: (p: VideoPacket) => void): Unsubscribe;
   onLog(cb: (entries: LogEntry[]) => void): Unsubscribe;

@@ -7,7 +7,8 @@ use std::thread::sleep;
 use std::time::{Duration, Instant};
 
 use tello_core::{
-    Action, Condition, Config, Drone, DroneEvent, Error, FlipDir, Protocol, Safety, SmartVideo, Sticks, WarningCode,
+    Action, Condition, Config, Drone, DroneEvent, Error, FlipDir, Protocol, Safety, SmartVideo, Sticks, VideoPolicy,
+    WarningCode,
 };
 use tello_sim::{Sim, SimConfig, FIXTURE_JPEG};
 
@@ -220,4 +221,37 @@ fn warns_about_poor_light_and_wind() {
     });
     let t = rig.drone.telemetry();
     assert_eq!((t.wind, t.wifi_interference), (Some(true), Some(0)));
+}
+
+#[test]
+fn adapts_video_bitrate_to_packet_loss() {
+    let rig = Rig::connect();
+    rig.drone.action(&Action::StreamOn).unwrap();
+    wait_until("taxa inicial no teto", || rig.sim.video_rate() == Some(4));
+    rig.wait_for("resumo do vídeo sem perda", Duration::from_secs(3), |e| match e {
+        DroneEvent::VideoStats(s) if s.fps > 0 && s.loss_pct == Some(0.0) && s.level == Some(4) => Some(()),
+        _ => None,
+    });
+    let keyframe_requests = || rig.sim.received().iter().filter(|r| *r == "app:video_sps_pps").count();
+    let before = keyframe_requests();
+    rig.sim.set_video_loss(30);
+    sleep(Duration::from_secs(2));
+    // Sem perda o pedido é 1 por segundo; com perda, logo depois de cada falha.
+    let requests = keyframe_requests() - before;
+    assert!(requests >= 5, "só {requests} pedidos de keyframe em 2 s");
+    rig.wait_for("taxa reduzida", Duration::from_secs(6), |e| match e {
+        DroneEvent::VideoStats(s) if s.level == Some(3) && s.loss_pct.is_some_and(|l| l > 5.0) => Some(()),
+        _ => None,
+    });
+    assert_eq!(rig.sim.video_rate(), Some(3));
+}
+
+#[test]
+fn fixed_video_rate_follows_the_policy() {
+    let rig = Rig::connect();
+    wait_until("taxa inicial", || rig.sim.video_rate() == Some(4));
+    rig.drone.set_video_policy(VideoPolicy { adaptive: false, level: 2 });
+    wait_until("taxa fixa", || rig.sim.video_rate() == Some(2));
+    rig.drone.set_video_policy(VideoPolicy { adaptive: false, level: 0 });
+    wait_until("taxa automática do drone", || rig.sim.video_rate() == Some(0));
 }

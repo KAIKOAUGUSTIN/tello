@@ -21,10 +21,11 @@ pub mod net;
 pub mod sdk;
 pub mod util;
 pub mod video;
+pub mod video_link;
 
 pub use blackbox::{Blackbox, Channel, Dir, Entry};
 pub use client::Drone;
-pub use config::{Config, Safety};
+pub use config::{Config, Safety, VideoPolicy};
 pub use error::Error;
 pub use model::*;
 pub use video::{NalAssembler, VideoFrame};

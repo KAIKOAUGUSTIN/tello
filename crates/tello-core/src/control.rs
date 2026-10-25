@@ -7,7 +7,7 @@ use std::time::{Duration, Instant};
 
 use crate::blackbox::{Blackbox, Channel};
 use crate::conditions::ConditionMonitor;
-use crate::{DroneEvent, EventSink, Safety, Sticks, Telemetry, WarningCode};
+use crate::{DroneEvent, EventSink, Safety, Sticks, Telemetry, VideoPolicy, WarningCode};
 
 /// Margem abaixo da altura máxima a partir da qual subir é bloqueado.
 const HEIGHT_MARGIN_CM: i32 = 10;
@@ -20,6 +20,7 @@ pub(crate) struct Shared {
     pub flying: AtomicBool,
     sticks: Mutex<(Sticks, Instant)>,
     safety: Mutex<Safety>,
+    video: Mutex<VideoPolicy>,
     telemetry: Mutex<Telemetry>,
     link: Mutex<LinkState>,
     conditions: Mutex<ConditionMonitor>,
@@ -44,6 +45,7 @@ impl Shared {
             flying: AtomicBool::new(false),
             sticks: Mutex::new((Sticks::NEUTRAL, Instant::now())),
             safety: Mutex::new(safety),
+            video: Mutex::new(VideoPolicy::default()),
             telemetry: Mutex::new(Telemetry::default()),
             link: Mutex::new(LinkState::default()),
             conditions: Mutex::new(ConditionMonitor::new()),
@@ -76,6 +78,14 @@ impl Shared {
 
     pub fn set_safety(&self, s: Safety) {
         *self.safety.lock().unwrap() = s;
+    }
+
+    pub fn video_policy(&self) -> VideoPolicy {
+        *self.video.lock().unwrap()
+    }
+
+    pub fn set_video_policy(&self, p: VideoPolicy) {
+        *self.video.lock().unwrap() = p;
     }
 
     pub fn telemetry(&self) -> Telemetry {

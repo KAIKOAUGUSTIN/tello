@@ -12,6 +12,13 @@ export function groundSpeed(x: number | null, y: number | null): string {
   return (Math.hypot(x, y) / 10).toFixed(1);
 }
 
+/** Taxa de cada nível de vídeo do drone (o nível 0 deixa o drone escolher). */
+export const VIDEO_MBPS = [0, 1, 1.5, 2, 3, 4];
+
+export function mbps(level: number): string {
+  return `${VIDEO_MBPS[level]?.toLocaleString('pt-BR') ?? '?'} Mbps`;
+}
+
 export function duration(s: number | null | undefined): string {
   if (s === null || s === undefined) return '—';
   const m = Math.floor(s / 60);
