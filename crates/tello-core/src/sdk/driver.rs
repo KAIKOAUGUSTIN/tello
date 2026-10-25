@@ -37,6 +37,8 @@ pub(crate) struct SdkDriver {
 
 struct Inner {
     shared: Arc<Shared>,
+    /// Vivo até o `shutdown` deste driver (a sessão pode continuar em outro).
+    alive: AtomicBool,
     sock: UdpSocket,
     drone: SocketAddr,
     responses: Mutex<Receiver<String>>,
@@ -67,6 +69,7 @@ pub(crate) fn connect(cfg: &Config, shared: Arc<Shared>) -> Result<SdkDriver, Er
     let (tx, rx) = mpsc::channel();
     let inner = Arc::new(Inner {
         shared,
+        alive: AtomicBool::new(true),
         sock,
         drone: SocketAddr::new(cfg.drone_ip, cfg.command_port),
         responses: Mutex::new(rx),
@@ -125,7 +128,7 @@ impl Driver for SdkDriver {
     }
 
     fn shutdown(&self) {
-        self.inner.shared.running.store(false, Ordering::SeqCst);
+        self.inner.alive.store(false, Ordering::SeqCst);
         let threads: Vec<_> = self.threads.lock().unwrap().drain(..).collect();
         for t in threads {
             if t.thread().id() != thread::current().id() {
@@ -142,6 +145,10 @@ impl Drop for SdkDriver {
 }
 
 impl Inner {
+    fn running(&self) -> bool {
+        self.alive.load(Ordering::Relaxed) && self.shared.running()
+    }
+
     fn handshake(&self) -> Result<(), Error> {
         let enter = SdkCommand { retries: 3, ..SdkCommand::query("command") };
         self.send(&enter).map_err(|e| match e {
@@ -226,7 +233,7 @@ impl Inner {
                     Err(RecvTimeoutError::Disconnected) => return Err(Error::NotConnected),
                 }
             }
-            if !self.shared.running() {
+            if !self.running() {
                 return Err(Error::NotConnected);
             }
         }
@@ -253,7 +260,7 @@ impl Inner {
     fn poll_loop(&self) {
         let mut last = Instant::now();
         let mut applied: Option<VideoPolicy> = None;
-        while self.shared.running() {
+        while self.running() {
             thread::sleep(Duration::from_millis(100));
             self.apply_video_policy(&mut applied);
             if last.elapsed() < WIFI_POLL || self.paused.load(Ordering::Relaxed) {
@@ -289,7 +296,7 @@ impl Inner {
 
     fn response_loop(&self, sock: UdpSocket, tx: Sender<String>) {
         let mut buf = [0u8; 2048];
-        while self.shared.running() {
+        while self.running() {
             match sock.recv_from(&mut buf) {
                 Ok((n, from)) if from.ip() == self.drone.ip() => {
                     let text = String::from_utf8_lossy(&buf[..n]).trim().to_string();
@@ -309,7 +316,7 @@ impl Inner {
 
     fn state_loop(&self, sock: UdpSocket) {
         let mut buf = [0u8; 2048];
-        while self.shared.running() {
+        while self.running() {
             match sock.recv_from(&mut buf) {
                 Ok((n, _)) => {
                     let text = String::from_utf8_lossy(&buf[..n]);
@@ -336,7 +343,7 @@ impl Inner {
         let mut buf = vec![0u8; 4096];
         let mut asm = NalAssembler::new();
         let mut stats = VideoWindow::default();
-        while self.shared.running() {
+        while self.running() {
             match sock.recv_from(&mut buf) {
                 Ok((n, _)) => {
                     self.video.lock().unwrap().last_packet = Some(Instant::now());
@@ -369,7 +376,7 @@ impl Inner {
         let mut last_rc_log = Instant::now();
         let mut last_check = Instant::now();
         let mut next = Instant::now();
-        while self.shared.running() {
+        while self.running() {
             if self.shared.take_auto_land() {
                 self.spawn_land();
             }

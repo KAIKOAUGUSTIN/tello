@@ -18,6 +18,8 @@ pub(crate) struct Shared {
     pub blackbox: Arc<Blackbox>,
     pub running: AtomicBool,
     pub flying: AtomicBool,
+    /// O usuário ligou o vídeo: religar depois de uma reconexão.
+    video_wanted: AtomicBool,
     sticks: Mutex<(Sticks, Instant)>,
     safety: Mutex<Safety>,
     video: Mutex<VideoPolicy>,
@@ -43,6 +45,7 @@ impl Shared {
             blackbox,
             running: AtomicBool::new(true),
             flying: AtomicBool::new(false),
+            video_wanted: AtomicBool::new(false),
             sticks: Mutex::new((Sticks::NEUTRAL, Instant::now())),
             safety: Mutex::new(safety),
             video: Mutex::new(VideoPolicy::default()),
@@ -103,6 +106,14 @@ impl Shared {
 
     pub fn is_flying(&self) -> bool {
         self.flying.load(Ordering::Relaxed)
+    }
+
+    pub fn set_video_wanted(&self, on: bool) {
+        self.video_wanted.store(on, Ordering::Relaxed);
+    }
+
+    pub fn video_wanted(&self) -> bool {
+        self.video_wanted.load(Ordering::Relaxed)
     }
 
     /// Sticks que devem ser enviados agora, já com todos os limites aplicados.
@@ -186,6 +197,18 @@ impl Shared {
     /// O driver chama isto no seu loop; devolve true uma única vez por pedido.
     pub fn take_auto_land(&self) -> bool {
         self.auto_land_pending.swap(false, Ordering::Relaxed)
+    }
+
+    /// Há quanto tempo a telemetria parou, se o link foi dado como perdido.
+    pub fn link_lost_for(&self) -> Option<Duration> {
+        let link = self.link.lock().unwrap();
+        link.last_state.filter(|_| link.lost).map(|t| t.elapsed())
+    }
+
+    /// Um driver novo conectou: o relógio do link recomeça, mas ele só volta
+    /// a contar como restabelecido quando a telemetria chegar.
+    pub fn link_reconnected(&self) {
+        self.link.lock().unwrap().last_state = Some(Instant::now());
     }
 
     /// Verifica a saúde do link; chamado periodicamente pelo loop de controle.

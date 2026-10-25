@@ -42,6 +42,8 @@ pub(crate) struct AppDriver {
 
 struct Inner {
     shared: Arc<Shared>,
+    /// Vivo até o `shutdown` deste driver (a sessão pode continuar em outro).
+    alive: AtomicBool,
     sock: UdpSocket,
     drone: SocketAddr,
     video_port: u16,
@@ -90,6 +92,7 @@ pub(crate) fn connect(cfg: &Config, shared: Arc<Shared>) -> Result<AppDriver, Er
     let (ack_tx, ack_rx) = mpsc::sync_channel(64);
     let inner = Arc::new(Inner {
         shared,
+        alive: AtomicBool::new(true),
         sock,
         drone: SocketAddr::new(cfg.drone_ip, cfg.command_port),
         video_port,
@@ -147,7 +150,7 @@ impl Driver for AppDriver {
     }
 
     fn shutdown(&self) {
-        self.inner.shared.running.store(false, Ordering::SeqCst);
+        self.inner.alive.store(false, Ordering::SeqCst);
         let threads: Vec<_> = self.threads.lock().unwrap().drain(..).collect();
         for t in threads {
             if t.thread().id() != thread::current().id() {
@@ -164,12 +167,19 @@ impl Drop for AppDriver {
 }
 
 impl Inner {
+    fn running(&self) -> bool {
+        self.alive.load(Ordering::Relaxed) && self.shared.running()
+    }
+
     fn handshake(&self) -> Result<(), Error> {
         let (tx, rx) = mpsc::channel();
         *self.handshake_tx.lock().unwrap() = Some(tx);
         let mut req = b"conn_req:".to_vec();
         req.extend_from_slice(&self.video_port.to_le_bytes());
         for _ in 0..4 {
+            if !self.running() {
+                return Err(Error::NotConnected);
+            }
             self.send_bytes(&req, format!("conn_req (vídeo na porta {})", self.video_port));
             if rx.recv_timeout(Duration::from_millis(1500)).is_ok() {
                 return Ok(());
@@ -270,7 +280,7 @@ impl Inner {
 
     fn recv_loop(&self, sock: UdpSocket) {
         let mut buf = vec![0u8; 4096];
-        while self.shared.running() {
+        while self.running() {
             match sock.recv_from(&mut buf) {
                 Ok((n, from)) if from.ip() == self.drone.ip() => self.handle(&buf[..n]),
                 Ok(_) => {}
@@ -421,7 +431,7 @@ impl Inner {
         let mut gap = FrameGap::new();
         let mut window = VideoWindow::new();
         let mut rate = RateControl::default();
-        while self.shared.running() {
+        while self.running() {
             match sock.recv_from(&mut buf) {
                 Ok((n, _)) if n > 2 => {
                     self.video_watch.lock().unwrap().1 = Some(Instant::now());
@@ -522,7 +532,7 @@ impl Inner {
         let mut last_check = Instant::now().checked_sub(Duration::from_secs(2)).unwrap_or_else(Instant::now);
         let mut sent_alt_limit: Option<u16> = None;
         let mut next = Instant::now();
-        while self.shared.running() {
+        while self.running() {
             if self.shared.take_auto_land() {
                 let inner = self.clone();
                 thread::spawn(move || {

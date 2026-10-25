@@ -85,6 +85,8 @@ pub(crate) struct Inner {
     cfg: SimConfig,
     sock: UdpSocket,
     running: AtomicBool,
+    /// Fora do ar: ignora o que chega e não envia nada (Wi-Fi caiu).
+    offline: AtomicBool,
     state: Mutex<State>,
     received: Mutex<Vec<String>>,
     verbose: bool,
@@ -134,6 +136,7 @@ impl Sim {
             cfg,
             sock,
             running: AtomicBool::new(true),
+            offline: AtomicBool::new(false),
             state: Mutex::new(state),
             received: Mutex::new(Vec::new()),
             verbose,
@@ -216,6 +219,11 @@ impl Sim {
         self.inner.state.lock().unwrap().wifi = (strength, interference);
     }
 
+    /// Simula a queda do Wi-Fi: nada entra nem sai até voltar.
+    pub fn set_offline(&self, offline: bool) {
+        self.inner.offline.store(offline, Ordering::SeqCst);
+    }
+
     pub fn stop(&mut self) {
         self.inner.running.store(false, Ordering::SeqCst);
         for t in self.threads.drain(..) {
@@ -233,6 +241,10 @@ impl Drop for Sim {
 impl Inner {
     fn running(&self) -> bool {
         self.running.load(Ordering::Relaxed)
+    }
+
+    fn offline(&self) -> bool {
+        self.offline.load(Ordering::Relaxed)
     }
 
     fn scaled(&self, secs: f32) -> Duration {
@@ -258,6 +270,9 @@ impl Inner {
         let mut buf = [0u8; 2048];
         while self.running() {
             let Ok((n, from)) = self.sock.recv_from(&mut buf) else { continue };
+            if self.offline() {
+                continue;
+            }
             let data = &buf[..n];
             let app = self.state.lock().unwrap().app_mode;
             if data.starts_with(b"conn_req:") || data.first() == Some(&0xcc) || (app && data == b"emergency") {
@@ -420,6 +435,9 @@ impl Inner {
                         s.auto_landed = true;
                     }
                 }
+                if self.offline() {
+                    continue;
+                }
                 if s.app_mode {
                     let snapshot = s.clone();
                     drop(s);
@@ -455,7 +473,7 @@ impl Inner {
                 (s.streaming, s.client, s.app_mode, s.app_video_port, s.video_loss)
             };
             match (streaming, client) {
-                (true, Some(c)) if !frames.is_empty() => {
+                (true, Some(c)) if !frames.is_empty() && !self.offline() => {
                     let frame = &frames[i % frames.len()];
                     if app {
                         // Modo App: cabeçalho de 2 bytes (frame, fragmento | 0x80 no último).

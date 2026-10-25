@@ -23,6 +23,8 @@ pub struct Config {
     pub photo_dir: Option<PathBuf>,
     pub safety: Safety,
     pub video: VideoPolicy,
+    /// Refaz a conexão sozinho quando a telemetria para de chegar.
+    pub auto_reconnect: bool,
 }
 
 impl Default for Config {
@@ -37,6 +39,7 @@ impl Default for Config {
             photo_dir: None,
             safety: Safety::default(),
             video: VideoPolicy::default(),
+            auto_reconnect: true,
         }
     }
 }

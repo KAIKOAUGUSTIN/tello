@@ -276,6 +276,10 @@ pub enum DroneEvent {
     Disconnected {
         reason: String,
     },
+    /// O link caiu e o app está refazendo a conexão (sockets e handshake).
+    Reconnecting {
+        attempt: u32,
+    },
     Telemetry {
         data: Telemetry,
     },

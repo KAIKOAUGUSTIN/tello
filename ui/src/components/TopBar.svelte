@@ -52,7 +52,7 @@
 
   <div class="status" class:lost={drone.linkLost}>
     <span class="dot"></span>
-    <span>{drone.linkLost ? 'Sinal perdido' : 'Conectado'}</span>
+    <span>{drone.reconnecting ? 'Reconectando…' : drone.linkLost ? 'Sinal perdido' : 'Conectado'}</span>
     <span class="sep"></span>
     <span class="muted">{modelName(drone.caps?.model ?? 'unknown')} · {protocolLabel}</span>
   </div>

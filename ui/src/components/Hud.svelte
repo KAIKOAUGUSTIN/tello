@@ -49,7 +49,11 @@
         {platform.mobile ? 'App em segundo plano' : 'Janela sem foco'}: sticks no centro, drone pairando
       </span>
     {/if}
-    {#if drone.linkLost}
+    {#if drone.reconnecting}
+      <span class="banner danger">
+        <Icon name="refresh-ccw" size={14} class="spin" /> Reconectando… (tentativa {drone.reconnecting})
+      </span>
+    {:else if drone.linkLost}
       <span class="banner danger"><Icon name="wifi-off" size={14} /> Sinal do drone perdido</span>
     {/if}
     {#each drone.conditions as c (c)}

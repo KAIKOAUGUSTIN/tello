@@ -15,6 +15,8 @@ interface DroneState {
   telemetry: Telemetry | null;
   telemetryAt: number;
   linkLost: boolean;
+  /** Tentativa atual enquanto a conexão é refeita sozinha. */
+  reconnecting: number | null;
   /** Rótulo da ação em andamento (ex.: "Decolando"). */
   busy: string | null;
   videoOn: boolean;
@@ -36,6 +38,7 @@ export const drone: DroneState = $state({
   telemetry: null,
   telemetryAt: 0,
   linkLost: false,
+  reconnecting: null,
   busy: null,
   videoOn: false,
   video: null,
@@ -81,6 +84,7 @@ function handleEvent(e: DroneEvent): void {
       if (e.code === 'no_video') drone.noVideo = true;
       if (e.code === 'link_lost') drone.linkLost = true;
       if (e.code === 'link_restored') drone.linkLost = false;
+      if (e.code === 'link_restored') drone.reconnecting = null;
       toast(e.code === 'link_restored' ? 'ok' : 'warn', warningTitle(e.code), e.message, 9000);
       break;
     case 'conditions':
@@ -92,8 +96,13 @@ function handleEvent(e: DroneEvent): void {
     case 'photo_saved':
       toast('ok', 'Foto salva', e.path);
       break;
+    case 'reconnecting':
+      drone.linkLost = true;
+      drone.reconnecting = e.attempt;
+      break;
     case 'disconnected':
       drone.conn = 'disconnected';
+      drone.reconnecting = null;
       drone.caps = null;
       drone.videoOn = false;
       drone.video = null;
@@ -101,7 +110,9 @@ function handleEvent(e: DroneEvent): void {
       drone.conditions = [];
       break;
     case 'connected':
+      // Também chega depois de uma reconexão; o núcleo já religou o vídeo.
       drone.caps = e.caps;
+      drone.reconnecting = null;
       break;
   }
 }
@@ -138,6 +149,7 @@ export async function connect(): Promise<void> {
   drone.conn = 'connecting';
   drone.error = null;
   drone.noState = drone.noVideo = drone.linkLost = false;
+  drone.reconnecting = null;
   drone.conditions = [];
   drone.telemetry = null;
   batteryAlerts.clear();
@@ -160,6 +172,7 @@ export async function disconnect(): Promise<void> {
   if (isFlying() && !confirm('O drone está voando. Desconectar fará ele pousar sozinho em ~15 s. Continuar?')) return;
   await backend?.disconnect();
   drone.conn = 'disconnected';
+  drone.reconnecting = null;
   drone.caps = null;
   drone.videoOn = false;
   drone.video = null;

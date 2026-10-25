@@ -113,6 +113,7 @@ Quem segura o drone no ar é o controlador de voo dele, com a IMU, a câmera de 
   - **Sinal Wi-Fi fraco**, abaixo de 30%. No modo SDK o app consulta o sinal a cada 5 s.
   - **Acima de 6 m**: a câmera de baixo deixa de enxergar o chão.
 - **Qualidade de vídeo adaptativa** (modo App, ligada por padrão). O app mede os pacotes de vídeo perdidos. Se a perda passa de 5% por 2 s, ele baixa a taxa do drone um nível, até 1 Mbps; depois de 15 s sem perda, sobe de novo até o teto escolhido em **Configurações → Vídeo**. A cada perda o app também pede um quadro-chave na hora, para a imagem se recompor rápido. Os níveis do drone são 1, 1,5, 2, 3 e 4 Mbps. No modo SDK, só o Tello EDU e o RoboMaster TT (SDK 3) aceitam taxa fixa.
+- **Reconexão automática.** Se a telemetria some por 5 s, o app refaz a conexão do zero (sockets novos e handshake) a cada 2 s, e o topo da tela mostra "Reconectando… (tentativa N)". Ao voltar, religa o vídeo e o modo rápido como estavam. Sem comandos por uns 15 s, o Tello pousa sozinho; por isso a reconexão começa cedo. Enquanto ela acontece, os comandos são recusados com o aviso "reconectando".
 
 ### Onde ficam os arquivos
 

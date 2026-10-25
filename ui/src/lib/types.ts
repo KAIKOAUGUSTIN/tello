@@ -115,6 +115,7 @@ export type WarningCode =
 export type DroneEvent =
   | { type: 'connected'; caps: Capabilities }
   | { type: 'disconnected'; reason: string }
+  | { type: 'reconnecting'; attempt: number }
   | { type: 'telemetry'; data: Telemetry }
   | { type: 'warning'; code: WarningCode; message: string }
   | { type: 'conditions'; active: Condition[] }

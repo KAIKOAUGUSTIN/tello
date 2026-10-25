@@ -252,3 +252,57 @@ fn applies_fixed_bitrate_on_sdk3_only() {
     sleep(Duration::from_millis(600));
     assert_eq!(rig.sim.video_rate(), None);
 }
+
+fn count(rig: &Rig, pred: impl Fn(&DroneEvent) -> bool) -> usize {
+    rig.events.lock().unwrap().iter().filter(|e| pred(e)).count()
+}
+
+#[test]
+fn reconnects_after_the_link_drops() {
+    let rig = Rig::new(|c| c.auto_land_after = Duration::from_secs(120));
+    let drone = rig.connect().unwrap();
+    drone.action(&Action::Takeoff).unwrap();
+    drone.action(&Action::StreamOn).unwrap();
+
+    rig.sim.set_offline(true);
+    rig.wait_for("início da reconexão", Duration::from_secs(10), |e| matches!(e, DroneEvent::Reconnecting { .. }));
+    let sent_before = rig.sim.received().len();
+    rig.sim.set_offline(false);
+
+    wait_until("nova conexão", Duration::from_secs(5), || {
+        count(&rig, |e| matches!(e, DroneEvent::Connected { .. })) == 2
+    });
+    rig.wait_for("link restabelecido", Duration::from_secs(3), |e| {
+        matches!(e, DroneEvent::Warning { code: WarningCode::LinkRestored, .. })
+    });
+    let after = rig.sim.received()[sent_before..].to_vec();
+    assert!(after.iter().any(|c| c == "command"), "sem handshake novo: {after:?}");
+    assert!(after.iter().any(|c| c == "streamon"), "o vídeo não foi religado: {after:?}");
+    assert!(drone.is_flying());
+    let frames = count(&rig, |e| matches!(e, DroneEvent::Video(_)));
+    wait_until("vídeo depois da reconexão", Duration::from_secs(3), || {
+        count(&rig, |e| matches!(e, DroneEvent::Video(_))) >= frames + 5
+    });
+    assert_eq!(drone.action(&Action::Land).unwrap(), "ok");
+}
+
+#[test]
+fn disconnect_during_reconnection_is_prompt() {
+    let rig = Rig::new(|_| {});
+    let drone = rig.connect().unwrap();
+    // Sem nenhum estado recebido não há link a recuperar (é o caso do firewall).
+    rig.wait_for(
+        "estado do SDK",
+        Duration::from_secs(2),
+        |e| matches!(e, DroneEvent::Telemetry { data } if data.pitch_deg.is_some()),
+    );
+    rig.sim.set_offline(true);
+    rig.wait_for("início da reconexão", Duration::from_secs(10), |e| matches!(e, DroneEvent::Reconnecting { .. }));
+    let start = Instant::now();
+    drone.disconnect();
+    assert!(start.elapsed() < Duration::from_secs(3), "disconnect levou {:?}", start.elapsed());
+    assert!(matches!(drone.action(&Action::Land), Err(Error::NotConnected)));
+    assert!(!drone.is_reconnecting());
+    let last = rig.events.lock().unwrap().last().cloned();
+    assert!(matches!(last, Some(DroneEvent::Disconnected { .. })), "último evento: {last:?}");
+}

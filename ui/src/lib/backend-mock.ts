@@ -94,6 +94,8 @@ export class MockBackend implements Backend {
   private streaming = false;
   private frames: AccessUnit[] | null = null;
   private timers: number[] = [];
+  /** Simula a queda do Wi-Fi: a telemetria para de chegar. */
+  private offline = false;
   private videoTimer = 0;
   private statsTimer = 0;
   private videoPolicy: VideoPolicy = { adaptive: true, level: 4 };
@@ -122,7 +124,28 @@ export class MockBackend implements Backend {
     this.timers.push(window.setInterval(() => this.tick(), 100));
     this.events.emit({ type: 'connected', caps: this.caps });
     this.mockConditions();
+    this.mockLinkDrop();
     return this.caps;
+  }
+
+  /** `?linkdrop=1` derruba o link 3 s depois de conectar e reconecta na 3ª tentativa. */
+  private mockLinkDrop(): void {
+    if (!new URLSearchParams(location.search).get('linkdrop')) return;
+    const at = (s: number, f: () => void) => this.timers.push(window.setTimeout(f, s * 1000));
+    at(3, () => (this.offline = true));
+    at(6, () =>
+      this.events.emit({
+        type: 'warning',
+        code: 'link_lost',
+        message: 'A telemetria parou de chegar. Verifique o Wi-Fi do drone.',
+      }),
+    );
+    for (const attempt of [1, 2, 3]) at(6 + attempt * 2, () => this.events.emit({ type: 'reconnecting', attempt }));
+    at(13, () => {
+      this.offline = false;
+      if (this.caps) this.events.emit({ type: 'connected', caps: this.caps });
+      this.events.emit({ type: 'warning', code: 'link_restored', message: 'Telemetria voltou a chegar.' });
+    });
   }
 
   /** `?conditions=low_light,wind` simula os avisos de condição de voo. */
@@ -141,6 +164,7 @@ export class MockBackend implements Backend {
   async disconnect(): Promise<void> {
     this.timers.forEach(clearInterval);
     this.timers = [];
+    this.offline = false;
     this.stopVideo();
     this.caps = null;
     this.flying = false;
@@ -272,6 +296,7 @@ export class MockBackend implements Backend {
   }
 
   private tick(): void {
+    if (this.offline) return;
     const dt = 0.1;
     const s = this.effectiveSticks();
     if (this.flying) {

@@ -27,8 +27,13 @@ struct Rig {
 
 impl Rig {
     fn connect() -> Rig {
-        let sim = Sim::start(SimConfig { bind: SocketAddr::new(LOCALHOST, 0), time_scale: 0.05, ..Default::default() })
-            .unwrap();
+        Self::connect_with(|_| {})
+    }
+
+    fn connect_with(sim_cfg: impl FnOnce(&mut SimConfig)) -> Rig {
+        let mut cfg = SimConfig { bind: SocketAddr::new(LOCALHOST, 0), time_scale: 0.05, ..Default::default() };
+        sim_cfg(&mut cfg);
+        let sim = Sim::start(cfg).unwrap();
         let photo_dir = std::env::temp_dir().join(format!("tello-test-{}", free_port()));
         let config = Config {
             drone_ip: LOCALHOST,
@@ -254,4 +259,51 @@ fn fixed_video_rate_follows_the_policy() {
     wait_until("taxa fixa", || rig.sim.video_rate() == Some(2));
     rig.drone.set_video_policy(VideoPolicy { adaptive: false, level: 0 });
     wait_until("taxa automática do drone", || rig.sim.video_rate() == Some(0));
+}
+
+/// Índice do evento logo depois da `n`-ésima conexão (1 = a primeira).
+fn after_connected(events: &[DroneEvent], n: usize) -> Option<usize> {
+    events.iter().enumerate().filter(|(_, e)| matches!(e, DroneEvent::Connected { .. })).nth(n - 1).map(|(i, _)| i + 1)
+}
+
+#[test]
+fn reconnects_after_the_link_drops() {
+    let rig = Rig::connect_with(|c| c.auto_land_after = Duration::from_secs(120));
+    rig.drone.action(&Action::Takeoff).unwrap();
+    rig.wait_flying(true);
+    rig.drone.action(&Action::StreamOn).unwrap();
+    rig.drone.action(&Action::SetFastMode { on: true }).unwrap();
+    wait_until("modo rápido nos sticks", || rig.sim.fast_mode());
+
+    rig.sim.set_offline(true);
+    rig.wait_for("aviso de link perdido", Duration::from_secs(5), |e| match e {
+        DroneEvent::Warning { code: WarningCode::LinkLost, .. } => Some(()),
+        _ => None,
+    });
+    rig.wait_for("início da reconexão", Duration::from_secs(5), |e| match e {
+        DroneEvent::Reconnecting { attempt: 1 } => Some(()),
+        _ => None,
+    });
+    assert!(rig.drone.is_reconnecting());
+    assert!(matches!(rig.drone.action(&Action::Land), Err(Error::Reconnecting)));
+    let handshakes = || rig.sim.received().iter().filter(|r| *r == "conn_req").count();
+    let before = handshakes();
+
+    rig.sim.set_offline(false);
+    wait_until("nova conexão", || after_connected(&rig.events.lock().unwrap(), 2).is_some());
+    assert!(handshakes() > before, "o handshake não foi refeito");
+    rig.wait_for("link restabelecido", Duration::from_secs(3), |e| match e {
+        DroneEvent::Warning { code: WarningCode::LinkRestored, .. } => Some(()),
+        _ => None,
+    });
+    assert!(!rig.drone.is_reconnecting());
+    assert!(rig.drone.is_flying(), "o estado de voo se perdeu na reconexão");
+    wait_until("vídeo religado", || {
+        let events = rig.events.lock().unwrap();
+        let from = after_connected(&events, 2).unwrap();
+        events[from..].iter().filter(|e| matches!(e, DroneEvent::Video(_))).count() >= 5
+    });
+    sleep(Duration::from_millis(200));
+    assert!(rig.sim.fast_mode(), "o modo rápido não foi reaplicado");
+    rig.drone.action(&Action::Land).unwrap();
 }
