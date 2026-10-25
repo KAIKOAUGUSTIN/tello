@@ -1,5 +1,5 @@
 //! Estado compartilhado entre o handle público e os drivers: sticks,
-//! limites de segurança, telemetria e saúde do link.
+//! limites de segurança, telemetria, saúde do link e o gravador do voo.
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
@@ -7,7 +7,9 @@ use std::time::{Duration, Instant};
 
 use crate::blackbox::{Blackbox, Channel};
 use crate::conditions::ConditionMonitor;
-use crate::{DroneEvent, EventSink, Safety, Sticks, Telemetry, VideoPolicy, WarningCode};
+use crate::report::{FlightRecorder, ReportOptions};
+use crate::util::unix_millis;
+use crate::{DroneEvent, EventSink, Safety, Sticks, Telemetry, VideoPolicy, VideoStats, WarningCode};
 
 /// Margem abaixo da altura máxima a partir da qual subir é bloqueado.
 const HEIGHT_MARGIN_CM: i32 = 10;
@@ -26,6 +28,7 @@ pub(crate) struct Shared {
     telemetry: Mutex<Telemetry>,
     link: Mutex<LinkState>,
     conditions: Mutex<ConditionMonitor>,
+    recorder: Mutex<FlightRecorder>,
     auto_land_pending: AtomicBool,
     auto_land_done: AtomicBool,
 }
@@ -52,6 +55,7 @@ impl Shared {
             telemetry: Mutex::new(Telemetry::default()),
             link: Mutex::new(LinkState::default()),
             conditions: Mutex::new(ConditionMonitor::new()),
+            recorder: Mutex::new(FlightRecorder::default()),
             auto_land_pending: AtomicBool::new(false),
             auto_land_done: AtomicBool::new(false),
         }
@@ -68,7 +72,18 @@ impl Shared {
     pub fn warn(&self, code: WarningCode, message: impl Into<String>) {
         let message = message.into();
         self.blackbox.info(Channel::Core, format!("aviso {code:?}: {message}"));
+        self.recorder.lock().unwrap().warning(code, &message, Instant::now());
         self.emit(DroneEvent::Warning { code, message });
+    }
+
+    /// Resumo do vídeo do último segundo (vai também para o relatório do voo).
+    pub fn video_stats(&self, stats: VideoStats) {
+        self.recorder.lock().unwrap().video(&stats, Instant::now());
+        self.emit(DroneEvent::VideoStats(stats));
+    }
+
+    pub fn set_report_options(&self, options: ReportOptions) {
+        self.recorder.lock().unwrap().options = options;
     }
 
     pub fn set_sticks(&self, s: Sticks) {
@@ -96,12 +111,45 @@ impl Shared {
     }
 
     pub fn set_flying(&self, flying: bool) {
-        self.flying.store(flying, Ordering::Relaxed);
+        let was = self.flying.swap(flying, Ordering::Relaxed);
         if !flying {
             self.auto_land_pending.store(false, Ordering::Relaxed);
         } else {
             self.auto_land_done.store(false, Ordering::Relaxed);
         }
+        match (was, flying) {
+            (false, true) => self.start_flight(),
+            (true, false) => self.finish_flight(false),
+            _ => {}
+        }
+    }
+
+    fn start_flight(&self) {
+        let active = self.conditions.lock().unwrap().active();
+        let lost = self.link.lock().unwrap().lost;
+        self.recorder.lock().unwrap().start(Instant::now(), unix_millis(), &active, lost);
+    }
+
+    /// Fecha o relatório do voo em andamento, salva o HTML e avisa a UI.
+    pub fn finish_flight(&self, interrupted: bool) {
+        let (report, dir) = {
+            let mut recorder = self.recorder.lock().unwrap();
+            (recorder.finish(Instant::now(), interrupted), recorder.options.dir.clone())
+        };
+        let Some(report) = report else { return };
+        let path = dir.and_then(|dir| {
+            let path = dir.join(report.file_name());
+            match std::fs::create_dir_all(&dir).and_then(|_| std::fs::write(&path, report.render_html())) {
+                Ok(()) => Some(path.display().to_string()),
+                Err(e) => {
+                    self.blackbox.info(Channel::Core, format!("não foi possível salvar o relatório do voo: {e}"));
+                    None
+                }
+            }
+        });
+        let summary = report.summary;
+        self.blackbox.info(Channel::Core, format!("relatório do voo: {summary:?} em {path:?}"));
+        self.emit(DroneEvent::FlightReport { path, summary });
     }
 
     pub fn is_flying(&self) -> bool {
@@ -161,6 +209,13 @@ impl Shared {
             link.last_state = Some(Instant::now());
             std::mem::replace(&mut link.lost, false)
         };
+        if from_link {
+            let mut recorder = self.recorder.lock().unwrap();
+            if restored {
+                recorder.link(false, Instant::now());
+            }
+            recorder.sample(&snapshot, Instant::now());
+        }
         if restored {
             self.warn(WarningCode::LinkRestored, "Telemetria voltou a chegar.");
         }
@@ -179,6 +234,7 @@ impl Shared {
             self.warn(c.warning(), c.message());
         }
         if update.changed {
+            self.recorder.lock().unwrap().conditions(&active, Instant::now());
             self.blackbox.info(Channel::Core, format!("condições ativas: {active:?}"));
             self.emit(DroneEvent::Conditions { active });
         }
@@ -224,6 +280,7 @@ impl Shared {
             Some(last) if last.elapsed() > LINK_TIMEOUT && !link.lost => {
                 link.lost = true;
                 drop(link);
+                self.recorder.lock().unwrap().link(true, Instant::now());
                 self.warn(WarningCode::LinkLost, "A telemetria parou de chegar. Verifique o Wi-Fi do drone.");
             }
             _ => {}

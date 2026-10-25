@@ -511,12 +511,12 @@ impl Inner {
             rate.level = Some(level);
             self.set_video_rate(level);
         }
-        self.shared.emit(DroneEvent::VideoStats(VideoStats {
+        self.shared.video_stats(VideoStats {
             fps: w.frames.min(u16::MAX as u32) as u16,
             kbps: (w.bytes * 8 / 1000) as u32,
             loss_pct: Some(loss),
             level: rate.level,
-        }));
+        });
     }
 
     /// Sem esperar a confirmação: roda na thread do vídeo.

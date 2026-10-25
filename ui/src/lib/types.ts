@@ -120,7 +120,8 @@ export type DroneEvent =
   | { type: 'warning'; code: WarningCode; message: string }
   | { type: 'conditions'; active: Condition[] }
   | ({ type: 'video_stats' } & VideoStats)
-  | { type: 'photo_saved'; path: string };
+  | { type: 'photo_saved'; path: string }
+  | { type: 'flight_report'; path: string | null; summary: FlightSummary };
 
 export interface LogEntry {
   t_ms: number;
@@ -152,10 +153,30 @@ export interface VideoStats {
   level: number | null;
 }
 
+/** Resumo do voo, gerado no pouso junto com o relatório em HTML. */
+export interface FlightSummary {
+  started_unix_ms: number;
+  duration_s: number;
+  interrupted: boolean;
+  battery_start: number | null;
+  battery_end: number | null;
+  max_height_cm: number | null;
+  wifi_min: number | null;
+  wifi_avg: number | null;
+  video_loss_avg: number | null;
+  temp_max_c: number | null;
+  warnings: number;
+  link_lost_s: number;
+  /** Possíveis causas de instabilidade. */
+  causes: string[];
+}
+
 export interface Config {
   drone_ip: string;
   safety: Safety;
   video: VideoPolicy;
+  /** Fuso do usuário em minutos a partir do UTC, para a hora do relatório. */
+  utc_offset_min: number;
 }
 
 export interface NetworkCheck {

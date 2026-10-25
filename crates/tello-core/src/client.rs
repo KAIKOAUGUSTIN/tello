@@ -5,6 +5,7 @@ use std::time::{Duration, Instant};
 
 use crate::blackbox::{Blackbox, Channel};
 use crate::control::Shared;
+use crate::report::ReportOptions;
 use crate::{
     app, sdk, Action, Capabilities, Config, DroneEvent, Error, EventSink, Protocol, Safety, Sticks, Telemetry,
     VideoPolicy,
@@ -65,6 +66,10 @@ impl Drone {
         blackbox.info(Channel::Core, format!("conectando em {} (modo {protocol:?})", config.drone_ip));
         let shared = Arc::new(Shared::new(sink, blackbox, config.safety.clone()));
         shared.set_video_policy(config.video);
+        shared.set_report_options(ReportOptions {
+            dir: config.report_dir.clone(),
+            utc_offset_min: config.utc_offset_min,
+        });
         let driver = open(&config, protocol, &shared)?;
         let caps = driver.caps();
         shared.blackbox.info(Channel::Core, format!("conectado: {caps:?}"));
@@ -170,6 +175,7 @@ impl Drone {
         if let Some(driver) = self.session.driver.write().unwrap().take() {
             driver.shutdown();
         }
+        self.shared().finish_flight(true);
         self.shared().blackbox.info(Channel::Core, "desconectado");
         self.shared().emit(DroneEvent::Disconnected { reason: "desconectado pelo usuário".into() });
     }

@@ -40,6 +40,7 @@ impl Rig {
             command_port: sim.addr().port(),
             app_video_port: free_port(),
             photo_dir: Some(photo_dir.clone()),
+            report_dir: Some(photo_dir.clone()),
             ..Default::default()
         };
         let events: Arc<Mutex<Vec<DroneEvent>>> = Arc::default();
@@ -306,4 +307,31 @@ fn reconnects_after_the_link_drops() {
     sleep(Duration::from_millis(200));
     assert!(rig.sim.fast_mode(), "o modo rápido não foi reaplicado");
     rig.drone.action(&Action::Land).unwrap();
+}
+
+#[test]
+fn disconnecting_in_flight_closes_the_report_as_interrupted() {
+    let rig = Rig::connect_with(|c| {
+        c.auto_land_after = Duration::from_secs(120);
+    });
+    rig.sim.set_wind(true);
+    rig.drone.action(&Action::Takeoff).unwrap();
+    rig.wait_flying(true);
+    rig.wait_for("vento", Duration::from_secs(5), |e| match e {
+        DroneEvent::Conditions { active } if active.contains(&Condition::Wind) => Some(()),
+        _ => None,
+    });
+    sleep(Duration::from_secs(3));
+    rig.drone.disconnect();
+    let (path, summary) = rig.wait_for("relatório do voo", Duration::from_secs(1), |e| match e {
+        DroneEvent::FlightReport { path, summary } => Some((path.clone(), summary.clone())),
+        _ => None,
+    });
+    assert!(summary.interrupted);
+    assert!(summary.causes.iter().any(|c| c.starts_with("Vento forte")), "{:?}", summary.causes);
+    assert!(summary.causes.iter().any(|c| c.contains("sem pouso")), "{:?}", summary.causes);
+    let html = std::fs::read_to_string(path.expect("caminho")).unwrap();
+    assert!(html.contains("interrompido") && html.contains("Linha do tempo"));
+    let events = rig.events.lock().unwrap();
+    assert!(matches!(events.last(), Some(DroneEvent::Disconnected { .. })), "o relatório vem antes do fim");
 }

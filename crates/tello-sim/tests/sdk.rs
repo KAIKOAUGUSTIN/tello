@@ -306,3 +306,28 @@ fn disconnect_during_reconnection_is_prompt() {
     let last = rig.events.lock().unwrap().last().cloned();
     assert!(matches!(last, Some(DroneEvent::Disconnected { .. })), "último evento: {last:?}");
 }
+
+#[test]
+fn writes_a_flight_report_after_landing() {
+    let mut rig = Rig::new(|_| {});
+    let dir = std::env::temp_dir().join(format!("tello-report-{}", free_port()));
+    rig.config.report_dir = Some(dir.clone());
+    rig.config.utc_offset_min = -180;
+    let drone = rig.connect().unwrap();
+    drone.action(&Action::Takeoff).unwrap();
+    sleep(Duration::from_millis(2500));
+    drone.action(&Action::Land).unwrap();
+    let DroneEvent::FlightReport { path, summary } =
+        rig.wait_for("relatório do voo", Duration::from_secs(2), |e| matches!(e, DroneEvent::FlightReport { .. }))
+    else {
+        unreachable!()
+    };
+    let path = path.expect("caminho do relatório");
+    assert!(path.contains("voo-") && path.ends_with(".html"), "{path}");
+    let html = std::fs::read_to_string(&path).unwrap();
+    let _ = std::fs::remove_dir_all(&dir);
+    assert!(html.contains("Relatório do voo") && html.contains("UTC−03:00") && html.contains("<polyline"));
+    assert!(!summary.interrupted);
+    assert!((2..=4).contains(&summary.duration_s), "duração {}", summary.duration_s);
+    assert_eq!(summary.battery_start, Some(87));
+}

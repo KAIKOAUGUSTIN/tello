@@ -18,6 +18,7 @@ pub mod error;
 pub mod model;
 pub mod mp4;
 pub mod net;
+pub mod report;
 pub mod sdk;
 pub mod util;
 pub mod video;

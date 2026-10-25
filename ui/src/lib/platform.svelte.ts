@@ -34,6 +34,13 @@ export function mediaHint(): string {
   return '';
 }
 
+/** Onde o usuário encontra os logs e os relatórios de voo no aparelho. */
+export function logsHint(): string {
+  if (platform.os === 'ios') return 'no app Arquivos, em "Tello Pilot" → "Logs"';
+  if (platform.os === 'android') return 'na pasta "Documents/Tello Pilot" do aparelho';
+  return '';
+}
+
 /** "celular" ou "computador", para os textos de ajuda. */
 export function deviceWord(): string {
   return platform.mobile ? 'celular' : 'computador';

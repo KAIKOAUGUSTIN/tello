@@ -4,7 +4,7 @@
 import { accessUnits, type AccessUnit } from '../video/h264';
 import { Emitter, type Backend, type FolderKind } from './backend';
 import { CONDITIONS } from './conditions';
-import { VIDEO_MBPS } from './format';
+import { stamp, VIDEO_MBPS } from './format';
 import type {
   Action,
   Capabilities,
@@ -15,6 +15,7 @@ import type {
   NetworkCheck,
   PlatformInfo,
   Protocol,
+  FlightSummary,
   RecordingResult,
   Safety,
   Sticks,
@@ -94,6 +95,9 @@ export class MockBackend implements Backend {
   private streaming = false;
   private frames: AccessUnit[] | null = null;
   private timers: number[] = [];
+  /** Início do voo (performance.now()) e bateria na decolagem, para o resumo do pouso. */
+  private flightStart = 0;
+  private flightBattery = 0;
   /** Simula a queda do Wi-Fi: a telemetria para de chegar. */
   private offline = false;
   private videoTimer = 0;
@@ -185,6 +189,8 @@ export class MockBackend implements Backend {
         await delay(1200);
         this.flying = true;
         this.height = 80;
+        this.flightStart = performance.now();
+        this.flightBattery = Math.round(this.battery);
         break;
       case 'throw_and_go':
         await delay(1500);
@@ -196,6 +202,7 @@ export class MockBackend implements Backend {
         await delay(1200);
         this.flying = false;
         this.height = 0;
+        this.flightReport();
         break;
       case 'emergency':
         this.flying = false;
@@ -280,6 +287,31 @@ export class MockBackend implements Backend {
   }
 
   async openFolder(_kind: FolderKind): Promise<void> {}
+
+  async openReport(_path: string): Promise<void> {}
+
+  /** Resumo como o do tello-core; com `?conditions=` aparece uma causa. */
+  private flightReport(): void {
+    const conditions = new URLSearchParams(location.search).get('conditions');
+    const seconds = (performance.now() - this.flightStart) / 1000;
+    const summary: FlightSummary = {
+      started_unix_ms: Date.now() - seconds * 1000,
+      duration_s: Math.round(seconds),
+      interrupted: false,
+      battery_start: this.flightBattery,
+      battery_end: Math.round(this.battery),
+      max_height_cm: 180,
+      wifi_min: 72,
+      wifi_avg: 88,
+      video_loss_avg: this.caps?.protocol === 'app' ? 0.4 : null,
+      temp_max_c: 66,
+      warnings: conditions ? conditions.split(',').length : 0,
+      link_lost_s: 0,
+      causes: conditions ? ['Pouca luz para a câmera de baixo em 40% do voo: o drone perde a referência.'] : [],
+    };
+    const path = `C:\\Users\\voce\\Documents\\Tello Pilot\\logs\\voo-${stamp()}.html`;
+    this.events.emit({ type: 'flight_report', path, summary });
+  }
 
   async landAndQuit(): Promise<void> {
     await this.disconnect();

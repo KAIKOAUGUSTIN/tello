@@ -114,6 +114,7 @@ Quem segura o drone no ar é o controlador de voo dele, com a IMU, a câmera de 
   - **Acima de 6 m**: a câmera de baixo deixa de enxergar o chão.
 - **Qualidade de vídeo adaptativa** (modo App, ligada por padrão). O app mede os pacotes de vídeo perdidos. Se a perda passa de 5% por 2 s, ele baixa a taxa do drone um nível, até 1 Mbps; depois de 15 s sem perda, sobe de novo até o teto escolhido em **Configurações → Vídeo**. A cada perda o app também pede um quadro-chave na hora, para a imagem se recompor rápido. Os níveis do drone são 1, 1,5, 2, 3 e 4 Mbps. No modo SDK, só o Tello EDU e o RoboMaster TT (SDK 3) aceitam taxa fixa.
 - **Reconexão automática.** Se a telemetria some por 5 s, o app refaz a conexão do zero (sockets novos e handshake) a cada 2 s, e o topo da tela mostra "Reconectando… (tentativa N)". Ao voltar, religa o vídeo e o modo rápido como estavam. Sem comandos por uns 15 s, o Tello pousa sozinho; por isso a reconexão começa cedo. Enquanto ela acontece, os comandos são recusados com o aviso "reconectando".
+- **Relatório do voo.** Da decolagem ao pouso, o app guarda uma amostra por segundo de bateria, altura, Wi-Fi, temperatura e perda de vídeo, além dos avisos e de quando cada condição esteve ativa. No pouso, salva um `voo-<data>-<hora>.html` na pasta de logs, com o resumo, gráficos, uma linha do tempo e as **possíveis causas** de instabilidade (pouca luz, vento, sinal fraco, vídeo perdendo pacotes, temperatura, bateria, quedas de conexão). No computador, o aviso de fim de voo tem o botão **Abrir relatório**; no celular, abra o arquivo pela pasta de logs (tabela abaixo). O arquivo não depende de internet: abre em qualquer navegador.
 
 ### Onde ficam os arquivos
 
@@ -121,7 +122,7 @@ Quem segura o drone no ar é o controlador de voo dele, com a IMU, a câmera de 
 |---|---|---|---|
 | Fotos de 5 MP e capturas | `Imagens/Tello Pilot` | Galeria, pasta `Pictures/Tello Pilot` | App **Arquivos** → Tello Pilot → `Fotos` |
 | Vídeos gravados (MP4) | `Vídeos/Tello Pilot` | Galeria, pasta `Movies/Tello Pilot` | App **Arquivos** → Tello Pilot → `Videos` |
-| Logs exportados | `Documentos/Tello Pilot/logs` | `Documents/Tello Pilot` | App **Arquivos** → Tello Pilot → `Logs` |
+| Logs exportados e relatórios de voo | `Documentos/Tello Pilot/logs` | `Documents/Tello Pilot` | App **Arquivos** → Tello Pilot → `Logs` |
 
 No Android 10 ou mais antigo, tudo fica na pasta do app (`Android/data/io.github.kaikoaugustin.tellopilot/files/Documents`).
 

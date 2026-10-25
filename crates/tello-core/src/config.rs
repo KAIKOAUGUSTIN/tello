@@ -25,6 +25,10 @@ pub struct Config {
     pub video: VideoPolicy,
     /// Refaz a conexão sozinho quando a telemetria para de chegar.
     pub auto_reconnect: bool,
+    /// Pasta para o relatório de cada voo (`voo-<data>.html`).
+    pub report_dir: Option<PathBuf>,
+    /// Fuso do usuário em minutos a partir do UTC, para a hora do relatório.
+    pub utc_offset_min: i32,
 }
 
 impl Default for Config {
@@ -40,6 +44,8 @@ impl Default for Config {
             safety: Safety::default(),
             video: VideoPolicy::default(),
             auto_reconnect: true,
+            report_dir: None,
+            utc_offset_min: 0,
         }
     }
 }

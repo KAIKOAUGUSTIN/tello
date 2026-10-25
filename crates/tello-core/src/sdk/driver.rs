@@ -463,12 +463,12 @@ impl VideoWindow {
     /// o nível de taxa), publica o resumo.
     fn close(&self, shared: &Shared, asm: &NalAssembler, streaming: Option<Option<u8>>) {
         if let Some(level) = streaming {
-            shared.emit(DroneEvent::VideoStats(VideoStats {
+            shared.video_stats(VideoStats {
                 fps: self.frames.min(u16::MAX as usize) as u16,
                 kbps: (self.bytes * 8 / 1000) as u32,
                 loss_pct: None,
                 level,
-            }));
+            });
         }
         if self.packets > 0 {
             shared.blackbox.record(

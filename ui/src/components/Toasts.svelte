@@ -14,6 +14,16 @@
       <div class="text">
         <strong>{t.title}</strong>
         {#if t.body}<span>{t.body}</span>{/if}
+        {#if t.action}
+          {@const action = t.action}
+          <button
+            class="btn action"
+            onclick={() => {
+              action.run();
+              dismiss(t.id);
+            }}>{action.label}</button
+          >
+        {/if}
       </div>
       <button class="icon-btn close" aria-label="Fechar" onclick={() => dismiss(t.id)}><Icon name="x" size={14} /></button>
     </div>
@@ -107,5 +117,13 @@
   .close {
     width: 26px;
     height: 26px;
+  }
+
+  .action {
+    align-self: flex-start;
+    min-height: 32px;
+    margin-top: 6px;
+    padding: 0 12px;
+    font-size: 13px;
   }
 </style>

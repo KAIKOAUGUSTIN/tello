@@ -3,9 +3,10 @@
 import { getBackend, type Backend } from './backend';
 import { CONDITIONS } from './conditions';
 import { errorText } from './format';
+import { logsHint, platform } from './platform.svelte';
 import { safetyFromSettings, settings, videoFromSettings } from './settings.svelte';
 import { toast } from './toasts.svelte';
-import type { Action, Capabilities, Condition, DroneEvent, Telemetry, VideoStats } from './types';
+import type { Action, Capabilities, Condition, DroneEvent, FlightSummary, Telemetry, VideoStats } from './types';
 
 export type ConnState = 'disconnected' | 'connecting' | 'connected';
 
@@ -96,6 +97,9 @@ function handleEvent(e: DroneEvent): void {
     case 'photo_saved':
       toast('ok', 'Foto salva', e.path);
       break;
+    case 'flight_report':
+      reportToast(e.path, e.summary);
+      break;
     case 'reconnecting':
       drone.linkLost = true;
       drone.reconnecting = e.attempt;
@@ -115,6 +119,23 @@ function handleEvent(e: DroneEvent): void {
       drone.reconnecting = null;
       break;
   }
+}
+
+function reportToast(path: string | null, s: FlightSummary): void {
+  const [min, sec] = [Math.floor(s.duration_s / 60), s.duration_s % 60];
+  const parts = [min > 0 ? `${min} min ${sec} s` : `${sec} s`];
+  if (s.battery_start !== null && s.battery_end !== null) {
+    parts.push(`bateria ${s.battery_start}% → ${s.battery_end}%`);
+  }
+  const n = s.causes.length;
+  parts.push(n === 0 ? 'nada fora do normal' : n === 1 ? '1 possível causa' : `${n} possíveis causas`);
+  let body = parts.join(' · ');
+  // No celular não há como abrir o navegador por aqui: o usuário abre o arquivo.
+  if (path && platform.mobile) body += `. O relatório completo está ${logsHint()}.`;
+  const open = (p: string) => void backend?.openReport(p).catch((e) => toast('error', 'Relatório', errorText(e)));
+  const canOpen = path && !platform.mobile && backend?.kind === 'tauri';
+  const action = canOpen ? { label: 'Abrir relatório', run: () => open(path) } : undefined;
+  toast(n > 0 ? 'warn' : 'ok', s.interrupted ? 'Voo interrompido' : 'Voo concluído', body, 15000, action);
 }
 
 function warningTitle(code: string): string {
@@ -158,6 +179,7 @@ export async function connect(): Promise<void> {
       drone_ip: settings.droneIp.trim(),
       safety: safetyFromSettings(settings),
       video: videoFromSettings(settings),
+      utc_offset_min: -new Date().getTimezoneOffset(),
     });
     drone.caps = caps;
     drone.conn = 'connected';

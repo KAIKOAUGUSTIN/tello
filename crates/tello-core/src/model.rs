@@ -4,6 +4,7 @@ use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
 
+use crate::report::FlightSummary;
 use crate::video::VideoFrame;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -295,6 +296,11 @@ pub enum DroneEvent {
     VideoStats(VideoStats),
     PhotoSaved {
         path: String,
+    },
+    /// O voo terminou; `path` é o HTML salvo (quando há pasta configurada).
+    FlightReport {
+        path: Option<String>,
+        summary: FlightSummary,
     },
     /// Frame H.264 completo (Annex B). Não é serializado: vai por canal binário.
     #[serde(skip)]

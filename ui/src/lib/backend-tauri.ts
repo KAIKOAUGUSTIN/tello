@@ -41,6 +41,7 @@ export async function createTauriBackend(): Promise<Backend> {
     startRecording: (stamp) => invoke('start_recording', { stamp }),
     stopRecording: () => invoke<RecordingResult>('stop_recording'),
     openFolder: (kind: FolderKind) => invoke('open_folder', { kind }),
+    openReport: (path: string) => invoke('open_report', { path }),
     landAndQuit: () => invoke('land_and_quit'),
   };
 }
