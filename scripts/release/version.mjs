@@ -210,12 +210,16 @@ function capitalize(s) {
 /** Atualiza a versão em todos os manifestos (sem precisar do cargo). */
 export function setVersion(cwd, version) {
   parseVersion(version);
+  // Edita sempre com LF e devolve o arquivo com a quebra de linha original
+  // (no Windows o checkout vem com CRLF).
   const edit = (file, fn) => {
     const path = join(cwd, file);
-    const before = readFileSync(path, 'utf8');
+    const raw = readFileSync(path, 'utf8');
+    const crlf = raw.includes('\r\n');
+    const before = crlf ? raw.replace(/\r\n/g, '\n') : raw;
     const after = fn(before);
     if (after === before && !before.includes(version)) throw new Error(`versão não encontrada em ${file}`);
-    writeFileSync(path, after);
+    writeFileSync(path, crlf ? after.replace(/\n/g, '\r\n') : after);
   };
 
   const old = fileVersion(cwd);

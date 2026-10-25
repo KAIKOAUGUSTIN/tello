@@ -171,6 +171,22 @@ describe('aplicar a versão', () => {
     assert.equal(JSON.parse(read('src-tauri/tauri.conf.json')).version, '1.4.2');
   });
 
+  it('funciona com quebras de linha CRLF (checkout no Windows)', () => {
+    const cwd = repo('0.1.0');
+    const files = ['Cargo.toml', 'Cargo.lock', 'package.json', 'package-lock.json', 'src-tauri/tauri.conf.json'];
+    for (const f of files) writeFileSync(join(cwd, f), readFileSync(join(cwd, f), 'utf8').replace(/\n/g, '\r\n'));
+    setVersion(cwd, '0.1.1');
+    const read = (f) => readFileSync(join(cwd, f), 'utf8');
+    assert.match(read('Cargo.toml'), /\r\nversion = "0\.1\.1"\r\n/);
+    assert.match(read('Cargo.lock'), /name = "app"\r\nversion = "0\.1\.1"/);
+    assert.match(read('Cargo.lock'), /name = "dep"\r\nversion = "0\.1\.0"/);
+    assert.equal(JSON.parse(read('package.json')).version, '0.1.1');
+    assert.equal(JSON.parse(read('package-lock.json')).packages[''].version, '0.1.1');
+    assert.equal(JSON.parse(read('src-tauri/tauri.conf.json')).version, '0.1.1');
+    // Mantém o CRLF: nenhuma linha fica só com LF.
+    for (const f of files) assert.doesNotMatch(read(f), /[^\r]\n/, f);
+  });
+
   it('recusa versões inválidas', () => {
     assert.throws(() => setVersion(repo(), 'v1.0'));
   });
