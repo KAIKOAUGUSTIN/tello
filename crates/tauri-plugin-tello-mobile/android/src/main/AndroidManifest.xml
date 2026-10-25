@@ -3,4 +3,7 @@
     <!-- Necessárias para prender o app à rede Wi-Fi do drone (requestNetwork/bindProcessToNetwork). -->
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.CHANGE_NETWORK_STATE" />
+    <!-- Android 17+: UDP para a rede local (o drone em 192.168.10.1) exige esta
+         permissão, do grupo "Dispositivos por perto". Pedida ao abrir o app. -->
+    <uses-permission android:name="android.permission.ACCESS_LOCAL_NETWORK" />
 </manifest>

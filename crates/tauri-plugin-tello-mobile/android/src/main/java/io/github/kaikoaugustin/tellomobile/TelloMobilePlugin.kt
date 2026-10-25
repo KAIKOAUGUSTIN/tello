@@ -1,8 +1,10 @@
 package io.github.kaikoaugustin.tellomobile
 
+import android.Manifest
 import android.app.Activity
 import android.content.Context
 import android.content.pm.ActivityInfo
+import android.content.pm.PackageManager
 import android.net.ConnectivityManager
 import android.net.Network
 import android.net.NetworkCapabilities
@@ -18,6 +20,8 @@ import app.tauri.annotation.TauriPlugin
 import app.tauri.plugin.Plugin
 
 private const val TAG = "TelloMobile"
+private const val ANDROID_17 = 37
+private const val LOCAL_NETWORK_REQUEST = 4201
 
 @TauriPlugin
 class TelloMobilePlugin(private val activity: Activity) : Plugin(activity) {
@@ -29,8 +33,21 @@ class TelloMobilePlugin(private val activity: Activity) : Plugin(activity) {
             activity.window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
             activity.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
             hideSystemBars()
+            requestLocalNetwork()
         }
         bindProcessToWifi()
+    }
+
+    /**
+     * No Android 17+ o sistema bloqueia o tráfego para a rede local (UDP para
+     * 192.168.10.1 falha com EPERM) até o usuário permitir "Dispositivos por perto".
+     */
+    private fun requestLocalNetwork() {
+        if (Build.VERSION.SDK_INT < ANDROID_17) return
+        val permission = Manifest.permission.ACCESS_LOCAL_NETWORK
+        if (activity.checkSelfPermission(permission) != PackageManager.PERMISSION_GRANTED) {
+            activity.requestPermissions(arrayOf(permission), LOCAL_NETWORK_REQUEST)
+        }
     }
 
     /** Tela cheia: as barras do sistema só aparecem ao deslizar da borda. */

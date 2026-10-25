@@ -143,6 +143,8 @@
             <li>O {deviceWord()} está no Wi-Fi do drone (e não em outra rede)?</li>
             {#if platform.os === 'ios'}
               <li>Em Ajustes → Tello Pilot, a opção <b>Rede Local</b> está ligada?</li>
+            {:else if platform.os === 'android'}
+              <li>No Android 17 ou mais novo: em Ajustes → Apps → Tello Pilot → Permissões, <b>Dispositivos por perto</b> está permitido?</li>
             {/if}
             <li>O app oficial do Tello está fechado{platform.mobile ? '' : ' no celular'}?</li>
           </ul>
