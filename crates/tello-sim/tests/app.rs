@@ -2,6 +2,7 @@
 
 use std::net::{IpAddr, Ipv4Addr, SocketAddr, UdpSocket};
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicU16, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread::sleep;
 use std::time::{Duration, Instant};
@@ -14,8 +15,20 @@ use tello_sim::{Sim, SimConfig, FIXTURE_JPEG};
 
 const LOCALHOST: IpAddr = IpAddr::V4(Ipv4Addr::LOCALHOST);
 
+/// Porta livre que nenhum outro socket pega enquanto o teste a usa. Com a
+/// porta 0, o sistema dá uma da faixa efêmera; o socket fecha e, até o cliente
+/// abri-la, outro teste em paralelo pode receber a mesma. Abaixo dessa faixa
+/// (32768+ no Linux, 49152+ no macOS e no Windows) o sistema não distribui
+/// portas sozinho, e o contador não repete.
 fn free_port() -> u16 {
-    UdpSocket::bind((LOCALHOST, 0)).unwrap().local_addr().unwrap().port()
+    static NEXT: AtomicU16 = AtomicU16::new(0);
+    let base = 20_000 + (std::process::id() % 50) as u16 * 200;
+    loop {
+        let port = base + NEXT.fetch_add(1, Ordering::Relaxed) % 200;
+        if UdpSocket::bind((LOCALHOST, port)).is_ok() {
+            return port;
+        }
+    }
 }
 
 struct Rig {
