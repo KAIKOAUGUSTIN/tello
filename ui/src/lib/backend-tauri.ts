@@ -2,7 +2,7 @@ import { Channel, invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 
 import { decodeVideoPacket, Emitter, type Backend, type FolderKind } from './backend';
-import type { DroneEvent, LogEntry, RecordingResult, Safety, Sticks, VideoPacket } from './types';
+import type { DroneEvent, LogEntry, RecordingResult, Safety, Sticks, VideoPacket, VideoPolicy } from './types';
 
 export async function createTauriBackend(): Promise<Backend> {
   const events = new Emitter<DroneEvent>();
@@ -30,6 +30,7 @@ export async function createTauriBackend(): Promise<Backend> {
     action: (action) => invoke('action', { action }),
     setSticks: (sticks: Sticks) => void quiet(invoke('set_sticks', { sticks })),
     setSafety: (safety: Safety) => void quiet(invoke('set_safety', { safety })),
+    setVideoPolicy: (policy: VideoPolicy) => void quiet(invoke('set_video_policy', { policy })),
     onEvent: (cb) => events.on(cb),
     onVideo: (cb) => video.on(cb),
     onLog: (cb) => logs.on(cb),
@@ -40,6 +41,8 @@ export async function createTauriBackend(): Promise<Backend> {
     startRecording: (stamp) => invoke('start_recording', { stamp }),
     stopRecording: () => invoke<RecordingResult>('stop_recording'),
     openFolder: (kind: FolderKind) => invoke('open_folder', { kind }),
+    openReport: (path: string) => invoke('open_report', { path }),
+    logNote: (text: string) => invoke('log_note', { text }),
     landAndQuit: () => invoke('land_and_quit'),
   };
 }

@@ -6,7 +6,10 @@ use std::sync::{Arc, Mutex};
 use std::thread::sleep;
 use std::time::{Duration, Instant};
 
-use tello_core::{Action, Config, Drone, DroneEvent, Error, FlipDir, Protocol, Safety, SmartVideo, Sticks};
+use tello_core::{
+    Action, CalibrationState, Condition, Config, Drone, DroneEvent, Error, FlipDir, Protocol, Safety, SmartVideo,
+    Sticks, VideoPolicy, WarningCode,
+};
 use tello_sim::{Sim, SimConfig, FIXTURE_JPEG};
 
 const LOCALHOST: IpAddr = IpAddr::V4(Ipv4Addr::LOCALHOST);
@@ -24,14 +27,20 @@ struct Rig {
 
 impl Rig {
     fn connect() -> Rig {
-        let sim = Sim::start(SimConfig { bind: SocketAddr::new(LOCALHOST, 0), time_scale: 0.05, ..Default::default() })
-            .unwrap();
+        Self::connect_with(|_| {})
+    }
+
+    fn connect_with(sim_cfg: impl FnOnce(&mut SimConfig)) -> Rig {
+        let mut cfg = SimConfig { bind: SocketAddr::new(LOCALHOST, 0), time_scale: 0.05, ..Default::default() };
+        sim_cfg(&mut cfg);
+        let sim = Sim::start(cfg).unwrap();
         let photo_dir = std::env::temp_dir().join(format!("tello-test-{}", free_port()));
         let config = Config {
             drone_ip: LOCALHOST,
             command_port: sim.addr().port(),
             app_video_port: free_port(),
             photo_dir: Some(photo_dir.clone()),
+            report_dir: Some(photo_dir.clone()),
             ..Default::default()
         };
         let events: Arc<Mutex<Vec<DroneEvent>>> = Arc::default();
@@ -189,4 +198,198 @@ fn emergency_stops_motors() {
     rig.wait_flying(true);
     rig.drone.action(&Action::Emergency).unwrap();
     wait_until("motores desligados", || !rig.sim.flying());
+}
+
+#[test]
+fn warns_about_poor_light_and_wind() {
+    let rig = Rig::connect();
+    rig.wait_for("luz informada", Duration::from_secs(2), |e| match e {
+        DroneEvent::Telemetry { data } if data.light_strength == Some(0) => Some(()),
+        _ => None,
+    });
+    rig.sim.set_light_poor(true);
+    rig.wait_for("aviso de pouca luz", Duration::from_secs(6), |e| match e {
+        DroneEvent::Warning { code: WarningCode::LowLight, .. } => Some(()),
+        _ => None,
+    });
+    // Vento só conta com o drone no ar.
+    rig.sim.set_wind(true);
+    rig.drone.action(&Action::Takeoff).unwrap();
+    rig.wait_flying(true);
+    rig.wait_for("condições com vento", Duration::from_secs(6), |e| match e {
+        DroneEvent::Conditions { active } if active == &[Condition::LowLight, Condition::Wind] => Some(()),
+        _ => None,
+    });
+    rig.sim.set_light_poor(false);
+    rig.wait_for("luz normalizada", Duration::from_secs(6), |e| match e {
+        DroneEvent::Conditions { active } if active == &[Condition::Wind] => Some(()),
+        _ => None,
+    });
+    let t = rig.drone.telemetry();
+    assert_eq!((t.wind, t.wifi_interference), (Some(true), Some(0)));
+}
+
+#[test]
+fn adapts_video_bitrate_to_packet_loss() {
+    let rig = Rig::connect();
+    rig.drone.action(&Action::StreamOn).unwrap();
+    wait_until("taxa inicial no teto", || rig.sim.video_rate() == Some(4));
+    rig.wait_for("resumo do vídeo sem perda", Duration::from_secs(3), |e| match e {
+        DroneEvent::VideoStats(s) if s.fps > 0 && s.loss_pct == Some(0.0) && s.level == Some(4) => Some(()),
+        _ => None,
+    });
+    let keyframe_requests = || rig.sim.received().iter().filter(|r| *r == "app:video_sps_pps").count();
+    let before = keyframe_requests();
+    rig.sim.set_video_loss(30);
+    sleep(Duration::from_secs(2));
+    // Sem perda o pedido é 1 por segundo; com perda, logo depois de cada falha.
+    let requests = keyframe_requests() - before;
+    assert!(requests >= 5, "só {requests} pedidos de keyframe em 2 s");
+    rig.wait_for("taxa reduzida", Duration::from_secs(6), |e| match e {
+        DroneEvent::VideoStats(s) if s.level == Some(3) && s.loss_pct.is_some_and(|l| l > 5.0) => Some(()),
+        _ => None,
+    });
+    assert_eq!(rig.sim.video_rate(), Some(3));
+}
+
+#[test]
+fn fixed_video_rate_follows_the_policy() {
+    let rig = Rig::connect();
+    wait_until("taxa inicial", || rig.sim.video_rate() == Some(4));
+    rig.drone.set_video_policy(VideoPolicy { adaptive: false, level: 2 });
+    wait_until("taxa fixa", || rig.sim.video_rate() == Some(2));
+    rig.drone.set_video_policy(VideoPolicy { adaptive: false, level: 0 });
+    wait_until("taxa automática do drone", || rig.sim.video_rate() == Some(0));
+}
+
+/// Índice do evento logo depois da `n`-ésima conexão (1 = a primeira).
+fn after_connected(events: &[DroneEvent], n: usize) -> Option<usize> {
+    events.iter().enumerate().filter(|(_, e)| matches!(e, DroneEvent::Connected { .. })).nth(n - 1).map(|(i, _)| i + 1)
+}
+
+#[test]
+fn reconnects_after_the_link_drops() {
+    let rig = Rig::connect_with(|c| c.auto_land_after = Duration::from_secs(120));
+    rig.drone.action(&Action::Takeoff).unwrap();
+    rig.wait_flying(true);
+    rig.drone.action(&Action::StreamOn).unwrap();
+    rig.drone.action(&Action::SetFastMode { on: true }).unwrap();
+    wait_until("modo rápido nos sticks", || rig.sim.fast_mode());
+
+    rig.sim.set_offline(true);
+    rig.wait_for("aviso de link perdido", Duration::from_secs(5), |e| match e {
+        DroneEvent::Warning { code: WarningCode::LinkLost, .. } => Some(()),
+        _ => None,
+    });
+    rig.wait_for("início da reconexão", Duration::from_secs(5), |e| match e {
+        DroneEvent::Reconnecting { attempt: 1 } => Some(()),
+        _ => None,
+    });
+    assert!(rig.drone.is_reconnecting());
+    assert!(matches!(rig.drone.action(&Action::Land), Err(Error::Reconnecting)));
+    let handshakes = || rig.sim.received().iter().filter(|r| *r == "conn_req").count();
+    let before = handshakes();
+
+    rig.sim.set_offline(false);
+    wait_until("nova conexão", || after_connected(&rig.events.lock().unwrap(), 2).is_some());
+    assert!(handshakes() > before, "o handshake não foi refeito");
+    rig.wait_for("link restabelecido", Duration::from_secs(3), |e| match e {
+        DroneEvent::Warning { code: WarningCode::LinkRestored, .. } => Some(()),
+        _ => None,
+    });
+    assert!(!rig.drone.is_reconnecting());
+    assert!(rig.drone.is_flying(), "o estado de voo se perdeu na reconexão");
+    wait_until("vídeo religado", || {
+        let events = rig.events.lock().unwrap();
+        let from = after_connected(&events, 2).unwrap();
+        events[from..].iter().filter(|e| matches!(e, DroneEvent::Video(_))).count() >= 5
+    });
+    sleep(Duration::from_millis(200));
+    assert!(rig.sim.fast_mode(), "o modo rápido não foi reaplicado");
+    rig.drone.action(&Action::Land).unwrap();
+}
+
+#[test]
+fn disconnecting_in_flight_closes_the_report_as_interrupted() {
+    let rig = Rig::connect_with(|c| {
+        c.auto_land_after = Duration::from_secs(120);
+    });
+    rig.sim.set_wind(true);
+    rig.drone.action(&Action::Takeoff).unwrap();
+    rig.wait_flying(true);
+    rig.wait_for("vento", Duration::from_secs(5), |e| match e {
+        DroneEvent::Conditions { active } if active.contains(&Condition::Wind) => Some(()),
+        _ => None,
+    });
+    sleep(Duration::from_secs(3));
+    rig.drone.disconnect();
+    let (path, summary) = rig.wait_for("relatório do voo", Duration::from_secs(1), |e| match e {
+        DroneEvent::FlightReport { path, summary } => Some((path.clone(), summary.clone())),
+        _ => None,
+    });
+    assert!(summary.interrupted);
+    assert!(summary.causes.iter().any(|c| c.starts_with("Vento forte")), "{:?}", summary.causes);
+    assert!(summary.causes.iter().any(|c| c.contains("sem pouso")), "{:?}", summary.causes);
+    let html = std::fs::read_to_string(path.expect("caminho")).unwrap();
+    assert!(html.contains("interrompido") && html.contains("Linha do tempo"));
+    let events = rig.events.lock().unwrap();
+    assert!(matches!(events.last(), Some(DroneEvent::Disconnected { .. })), "o relatório vem antes do fim");
+}
+
+#[test]
+fn calibrates_the_imu_on_the_ground() {
+    let rig = Rig::connect();
+    assert!(rig.drone.caps().imu_calibration);
+    rig.drone.action(&Action::CalibrateImu).unwrap();
+    // No simulador o "usuário" leva 30 s × 0,05 = 1,5 s para as 6 posições.
+    let done = rig.wait_for("calibração concluída", Duration::from_secs(4), |e| match e {
+        DroneEvent::Calibration(c) if c.state == CalibrationState::Done => Some(*c),
+        _ => None,
+    });
+    assert_eq!((done.steps, done.progress), (6, 100));
+    let running: Vec<(u8, u8)> = rig
+        .events
+        .lock()
+        .unwrap()
+        .iter()
+        .filter_map(|e| match e {
+            DroneEvent::Calibration(c) if c.state == CalibrationState::Running => Some((c.steps, c.progress)),
+            _ => None,
+        })
+        .collect();
+    assert!(running.len() >= 3 && running.windows(2).all(|w| w[0] <= w[1]), "{running:?}");
+    assert!(rig.sim.received().iter().any(|r| r == "app:calibration_start"));
+    let polls = || rig.sim.received().iter().filter(|r| *r == "app:calibration_status").count();
+    let after_done = polls();
+    sleep(Duration::from_millis(600));
+    assert!(polls() <= after_done + 1, "as consultas continuaram depois de 100%");
+}
+
+#[test]
+fn refuses_imu_calibration_in_flight() {
+    let rig = Rig::connect();
+    rig.drone.action(&Action::Takeoff).unwrap();
+    rig.wait_flying(true);
+    assert!(matches!(rig.drone.action(&Action::CalibrateImu), Err(Error::Refused(_))));
+    assert!(!rig.sim.received().iter().any(|r| r == "app:calibration_start"));
+    rig.drone.action(&Action::Land).unwrap();
+}
+
+#[test]
+fn experimental_cog_calibration_only_in_a_still_low_hover() {
+    let rig = Rig::connect();
+    assert!(rig.drone.caps().cog_calibration);
+    assert!(matches!(rig.drone.action(&Action::CalibrateCog), Err(Error::Refused(_))), "no chão");
+    rig.drone.action(&Action::Takeoff).unwrap();
+    rig.wait_flying(true);
+    rig.drone.set_sticks(Sticks { roll: 0.5, ..Sticks::NEUTRAL });
+    assert!(matches!(rig.drone.action(&Action::CalibrateCog), Err(Error::Refused(_))), "sticks fora do centro");
+    assert!(!rig.sim.received().iter().any(|r| r == "app:calibrate"), "recusado antes de enviar");
+    rig.drone.set_sticks(Sticks::NEUTRAL);
+    assert_eq!(rig.drone.action(&Action::CalibrateCog).unwrap(), "ok");
+    assert!(rig.sim.received().iter().any(|r| r == "app:calibrate"));
+    let log = rig.drone.blackbox().snapshot();
+    let noted = log.iter().filter(|e| e.text.contains("centro de massa (experimental)")).count();
+    assert!(noted >= 3, "envio, resposta e resultado na caixa-preta ({noted})");
+    rig.drone.action(&Action::Land).unwrap();
 }

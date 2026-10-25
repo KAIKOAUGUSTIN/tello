@@ -5,7 +5,10 @@ use std::sync::{Arc, Mutex};
 use std::thread::sleep;
 use std::time::{Duration, Instant};
 
-use tello_core::{Action, Config, Drone, DroneEvent, Error, FlipDir, Model, Protocol, Safety, Sticks, WarningCode};
+use tello_core::{
+    Action, Condition, Config, Drone, DroneEvent, Error, FlipDir, Model, Protocol, Safety, Sticks, VideoPolicy,
+    WarningCode,
+};
 use tello_sim::{Sim, SimConfig};
 
 const LOCALHOST: IpAddr = IpAddr::V4(Ipv4Addr::LOCALHOST);
@@ -147,6 +150,9 @@ fn refused_and_unsupported_commands() {
     assert!(matches!(drone.action(&Action::Flip { dir: FlipDir::Left }), Err(Error::Refused(_))));
     assert!(matches!(drone.action(&Action::ThrowAndGo), Err(Error::NotSupported(_))));
     assert!(matches!(drone.action(&Action::Flip { dir: FlipDir::BackLeft }), Err(Error::NotSupported(_))));
+    assert!(matches!(drone.action(&Action::CalibrateImu), Err(Error::NotSupported(_))));
+    assert!(matches!(drone.action(&Action::CalibrateCog), Err(Error::NotSupported(_))));
+    assert!(!drone.caps().imu_calibration && !drone.caps().cog_calibration);
     assert_eq!(drone.action(&Action::Raw { text: "battery?".into() }).unwrap(), "87");
 }
 
@@ -212,4 +218,119 @@ fn fixture_has_tello_like_sps() {
     assert_eq!((sps.width, sps.height), (960, 720));
     assert_eq!((sps.profile_idc, sps.level_idc), (77, 40));
     assert_eq!(sps.codec_string(), "avc1.4D4028");
+}
+
+#[test]
+fn polls_wifi_and_warns_when_weak() {
+    let rig = Rig::new(|_| {});
+    let drone = rig.connect().unwrap();
+    rig.sim.set_wifi(20, 0);
+    rig.wait_for("aviso de sinal fraco", Duration::from_secs(12), |e| {
+        matches!(e, DroneEvent::Warning { code: WarningCode::WeakSignal, .. })
+    });
+    assert_eq!(drone.telemetry().wifi_strength, Some(20));
+    rig.wait_for(
+        "condição de sinal fraco",
+        Duration::from_secs(1),
+        |e| matches!(e, DroneEvent::Conditions { active } if active == &[Condition::WeakSignal]),
+    );
+}
+
+#[test]
+fn applies_fixed_bitrate_on_sdk3_only() {
+    let mut rig = Rig::new(|c| c.sdk_version = Some("30".into()));
+    rig.config.video = VideoPolicy { adaptive: false, level: 3 };
+    let drone = rig.connect().unwrap();
+    wait_until("setbitrate", Duration::from_secs(3), || rig.sim.video_rate() == Some(3));
+    drone.action(&Action::StreamOn).unwrap();
+    rig.wait_for(
+        "resumo do vídeo",
+        Duration::from_secs(3),
+        |e| matches!(e, DroneEvent::VideoStats(s) if s.fps > 0 && s.loss_pct.is_none() && s.level == Some(3)),
+    );
+
+    // Sem perda medida, o modo adaptativo não mexe na taxa no SDK.
+    let rig = Rig::new(|c| c.sdk_version = Some("30".into()));
+    let _drone = rig.connect().unwrap();
+    sleep(Duration::from_millis(600));
+    assert_eq!(rig.sim.video_rate(), None);
+}
+
+fn count(rig: &Rig, pred: impl Fn(&DroneEvent) -> bool) -> usize {
+    rig.events.lock().unwrap().iter().filter(|e| pred(e)).count()
+}
+
+#[test]
+fn reconnects_after_the_link_drops() {
+    let rig = Rig::new(|c| c.auto_land_after = Duration::from_secs(120));
+    let drone = rig.connect().unwrap();
+    drone.action(&Action::Takeoff).unwrap();
+    drone.action(&Action::StreamOn).unwrap();
+
+    rig.sim.set_offline(true);
+    rig.wait_for("início da reconexão", Duration::from_secs(10), |e| matches!(e, DroneEvent::Reconnecting { .. }));
+    let sent_before = rig.sim.received().len();
+    rig.sim.set_offline(false);
+
+    wait_until("nova conexão", Duration::from_secs(5), || {
+        count(&rig, |e| matches!(e, DroneEvent::Connected { .. })) == 2
+    });
+    rig.wait_for("link restabelecido", Duration::from_secs(3), |e| {
+        matches!(e, DroneEvent::Warning { code: WarningCode::LinkRestored, .. })
+    });
+    let after = rig.sim.received()[sent_before..].to_vec();
+    assert!(after.iter().any(|c| c == "command"), "sem handshake novo: {after:?}");
+    assert!(after.iter().any(|c| c == "streamon"), "o vídeo não foi religado: {after:?}");
+    assert!(drone.is_flying());
+    let frames = count(&rig, |e| matches!(e, DroneEvent::Video(_)));
+    wait_until("vídeo depois da reconexão", Duration::from_secs(3), || {
+        count(&rig, |e| matches!(e, DroneEvent::Video(_))) >= frames + 5
+    });
+    assert_eq!(drone.action(&Action::Land).unwrap(), "ok");
+}
+
+#[test]
+fn disconnect_during_reconnection_is_prompt() {
+    let rig = Rig::new(|_| {});
+    let drone = rig.connect().unwrap();
+    // Sem nenhum estado recebido não há link a recuperar (é o caso do firewall).
+    rig.wait_for(
+        "estado do SDK",
+        Duration::from_secs(2),
+        |e| matches!(e, DroneEvent::Telemetry { data } if data.pitch_deg.is_some()),
+    );
+    rig.sim.set_offline(true);
+    rig.wait_for("início da reconexão", Duration::from_secs(10), |e| matches!(e, DroneEvent::Reconnecting { .. }));
+    let start = Instant::now();
+    drone.disconnect();
+    assert!(start.elapsed() < Duration::from_secs(3), "disconnect levou {:?}", start.elapsed());
+    assert!(matches!(drone.action(&Action::Land), Err(Error::NotConnected)));
+    assert!(!drone.is_reconnecting());
+    let last = rig.events.lock().unwrap().last().cloned();
+    assert!(matches!(last, Some(DroneEvent::Disconnected { .. })), "último evento: {last:?}");
+}
+
+#[test]
+fn writes_a_flight_report_after_landing() {
+    let mut rig = Rig::new(|_| {});
+    let dir = std::env::temp_dir().join(format!("tello-report-{}", free_port()));
+    rig.config.report_dir = Some(dir.clone());
+    rig.config.utc_offset_min = -180;
+    let drone = rig.connect().unwrap();
+    drone.action(&Action::Takeoff).unwrap();
+    sleep(Duration::from_millis(2500));
+    drone.action(&Action::Land).unwrap();
+    let DroneEvent::FlightReport { path, summary } =
+        rig.wait_for("relatório do voo", Duration::from_secs(2), |e| matches!(e, DroneEvent::FlightReport { .. }))
+    else {
+        unreachable!()
+    };
+    let path = path.expect("caminho do relatório");
+    assert!(path.contains("voo-") && path.ends_with(".html"), "{path}");
+    let html = std::fs::read_to_string(&path).unwrap();
+    let _ = std::fs::remove_dir_all(&dir);
+    assert!(html.contains("Relatório do voo") && html.contains("UTC−03:00") && html.contains("<polyline"));
+    assert!(!summary.interrupted);
+    assert!((2..=4).contains(&summary.duration_s), "duração {}", summary.duration_s);
+    assert_eq!(summary.battery_start, Some(87));
 }

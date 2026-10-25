@@ -1,12 +1,21 @@
 <script lang="ts">
-  import { applySafety, drone, run } from '../lib/drone.svelte';
+  import {
+    applySafety,
+    applyVideo,
+    calibrateCog,
+    COG_MAX_HEIGHT_CM,
+    drone,
+    isFlying,
+    run,
+  } from '../lib/drone.svelte';
+  import { mbps } from '../lib/format';
   import { platform } from '../lib/platform.svelte';
   import { resetSettings, saveSettings, settings } from '../lib/settings.svelte';
   import { input } from '../input/mixer.svelte';
+  import { ai } from '../ai/engine.svelte';
   import Icon from './Icon.svelte';
 
   let { open = $bindable(false) }: { open?: boolean } = $props();
-  let bitrate = $state(0);
   // O WebView do Android não tem a Gamepad API; no iOS o controle funciona.
   const noGamepad = $derived(platform.os === 'android' && !input.gamepad);
 
@@ -15,9 +24,61 @@
     applySafety();
   }
 
-  function setBitrate() {
-    void run({ type: 'set_video_bitrate', level: bitrate }, null);
+  // Só o modo App informa a perda de pacotes, que o ajuste automático usa.
+  const adaptive = $derived(settings.adaptiveVideo && drone.caps?.protocol === 'app');
+
+  function videoChanged() {
+    if (settings.adaptiveVideo && settings.videoLevel === 0) settings.videoLevel = 4;
+    saveSettings();
+    applyVideo();
   }
+
+  const calibration = $derived(drone.calibration);
+  const calibrating = $derived(calibration?.state === 'running');
+  const flying = $derived(isFlying());
+
+  function calibrate() {
+    if (!confirm('Tire as hélices antes de começar: você vai girar o drone com as mãos. Continuar?')) return;
+    void run({ type: 'calibrate_imu' }, null);
+  }
+
+  // Calibração do centro de massa: o núcleo confere de novo antes de enviar.
+  const height = $derived(drone.telemetry?.height_cm ?? null);
+  const cogBlocker = $derived(
+    !flying
+      ? 'Decole para calibrar'
+      : height === null || height > COG_MAX_HEIGHT_CM
+        ? 'Desça para menos de 1,5 m'
+        : drone.busy
+          ? 'Aguarde'
+          : null,
+  );
+
+  function toggleAi(e: Event & { currentTarget: HTMLInputElement }) {
+    const on = e.currentTarget.checked;
+    if (on && !settings.aiAcknowledged) {
+      const ok = confirm(
+        'A IA é experimental: ela reconhece pessoas no vídeo, no próprio aparelho e sem internet. Ela pode errar. ' +
+          'Mantenha sempre o controle e, se algo estranho acontecer, pare o drone (pairar) ou use a emergência. Continuar?',
+      );
+      if (!ok) return void (e.currentTarget.checked = false);
+      settings.aiAcknowledged = true;
+    }
+    settings.aiEnabled = on;
+    saveSettings();
+  }
+
+  const aiStatus = $derived(
+    ai.status === 'loading'
+      ? 'Carregando o modelo…'
+      : ai.status === 'error'
+        ? `Não funcionou: ${ai.error}`
+        : ai.status === 'ready'
+          ? ai.hz > 0
+            ? `Pronta · ${ai.delegate} · ${ai.hz} análises/s · ${ai.ms} ms`
+            : `Pronta · ${ai.delegate} · aguardando o vídeo`
+          : '',
+  );
 
   const bars = $derived([
     ['Giro', input.sticks.yaw],
@@ -113,15 +174,102 @@
           <input type="checkbox" bind:checked={settings.autoStartVideo} onchange={changed} />
         </label>
         {#if drone.caps?.video_bitrate}
+          {#if drone.caps.protocol === 'app'}
+            <label class="row">
+              <span>Ajustar a qualidade sozinho <small>baixa a taxa quando o Wi-Fi perde pacotes</small></span>
+              <input type="checkbox" bind:checked={settings.adaptiveVideo} onchange={videoChanged} />
+            </label>
+          {/if}
           <div class="row">
-            <span>Taxa de vídeo</span>
-            <select bind:value={bitrate} onchange={setBitrate}>
-              <option value={0}>Automática</option>
-              {#each [1, 2, 3, 4, 5] as m (m)}<option value={m}>{m} Mbps</option>{/each}
+            <span>{adaptive ? 'Qualidade máxima' : 'Taxa de vídeo'}</span>
+            <select bind:value={settings.videoLevel} onchange={videoChanged}>
+              {#if !adaptive}<option value={0}>Automática (drone)</option>{/if}
+              {#each [1, 2, 3, 4, 5] as level (level)}<option value={level}>{mbps(level)}</option>{/each}
             </select>
           </div>
         {/if}
+        {#if drone.video}
+          <span class="muted">
+            Agora: {drone.video.fps} fps · {(drone.video.kbps / 1000).toLocaleString('pt-BR', { maximumFractionDigits: 1 })} Mbps
+            {#if drone.video.loss_pct !== null}· perda {Math.round(drone.video.loss_pct)}%{/if}
+            {#if drone.video.level !== null}· limite {mbps(drone.video.level)}{/if}
+          </span>
+        {/if}
       </section>
+
+      <section>
+        <h3 class="label"><Icon name="scan-eye" size={14} /> IA <span class="tag">Experimental</span></h3>
+        <label class="row">
+          <span>Ativar IA <small>reconhece pessoas no vídeo, no próprio aparelho e sem internet</small></span>
+          <input type="checkbox" checked={settings.aiEnabled} onchange={toggleAi} />
+        </label>
+        {#if settings.aiEnabled}
+          <span class="ai-status" class:ready={ai.status === 'ready'} class:failed={ai.status === 'error'}>{aiStatus}</span>
+          <label class="row">
+            <span>Mostrar o esqueleto sobre o vídeo</span>
+            <input type="checkbox" bind:checked={settings.aiOverlay} onchange={changed} />
+          </label>
+        {/if}
+        <span class="muted">Funciona melhor com uma pessoa por vez, a até uns 4 m, com boa luz e a cabeça visível.</span>
+      </section>
+
+      {#if drone.caps?.imu_calibration}
+        <section>
+          <h3 class="label"><Icon name="rotate-3d" size={14} /> Calibração da IMU</h3>
+          <span class="muted">Use se o drone deriva mesmo com boa luz e sem vento, ou depois de uma queda.</span>
+          <ol class="steps">
+            <li>Tire as hélices e deixe o drone ligado sobre uma superfície plana.</li>
+            <li>Toque em <b>Calibrar</b>.</li>
+            <li>
+              Gire o drone pelas 6 posições: normal, de cabeça para baixo, de cada lado e com o nariz para cima e para
+              baixo. Segure parado em cada uma até o contador avançar.
+            </li>
+            <li>No fim, desligue e ligue o drone.</li>
+          </ol>
+          {#if calibration}
+            <div class="calib" class:done={calibration.state === 'done'} class:failed={calibration.state === 'timed_out'}>
+              <div class="progress"><span style="width: {calibration.progress}%"></span></div>
+              <span>
+                {#if calibration.state === 'running'}
+                  Posições: {calibration.steps}/6 · {calibration.progress}%
+                {:else if calibration.state === 'done'}
+                  Pronto. Desligue e ligue o drone para aplicar.
+                {:else}
+                  Não terminou. Desligue e ligue o drone e tente de novo.
+                {/if}
+              </span>
+            </div>
+          {/if}
+          <button class="btn" disabled={calibrating || flying} onclick={calibrate}>
+            <Icon name="rotate-3d" size={16} />
+            {calibrating ? 'Calibrando…' : flying ? 'Pouse para calibrar' : 'Calibrar'}
+          </button>
+        </section>
+      {/if}
+
+      {#if drone.caps?.cog_calibration}
+        <section>
+          <h3 class="label">
+            <Icon name="crosshair" size={14} /> Centro de massa <span class="tag">Experimental</span>
+          </h3>
+          <span class="muted">
+            Para o drone que puxa sempre para o mesmo lado ao pairar, mesmo com a IMU calibrada. O comando não é
+            documentado pela fabricante: use num lugar fechado, com espaço e com o dedo na emergência.
+          </span>
+          <ol class="steps">
+            <li>Decole e deixe o drone pairando a menos de 1,5 m, longe de paredes.</li>
+            <li>Solte os sticks e toque em <b>Calibrar centro de massa</b>.</li>
+            <li>
+              Não mexa nos sticks por alguns segundos. Se o drone se mover de um jeito estranho, pouse ou use a
+              emergência.
+            </li>
+          </ol>
+          <button class="btn" disabled={cogBlocker !== null} onclick={() => void calibrateCog()}>
+            <Icon name="crosshair" size={16} />
+            {cogBlocker ?? 'Calibrar centro de massa'}
+          </button>
+        </section>
+      {/if}
 
       <!-- No Android não há teclado nem controle: só os sticks na tela. -->
       {#if !noGamepad}
@@ -135,6 +283,7 @@
               <dt>L</dt><dd>Pousar</dd>
               <dt>Espaço</dt><dd>Pairar</dd>
               <dt>P · R</dt><dd>Foto · gravar vídeo</dd>
+              {#if settings.aiEnabled}<dt>F</dt><dd>Seguir pessoa (IA)</dd>{/if}
               <dt>Esc Esc</dt><dd>Emergência</dd>
             </dl>
           {/if}
@@ -150,7 +299,7 @@
       {/if}
 
       <section class="about">
-        <span class="muted">Tello Pilot {__APP_VERSION__} · GPL-3.0 · ícones Lucide (ISC)</span>
+        <span class="muted">Tello Pilot {__APP_VERSION__} · GPL-3.0 · ícones Lucide (ISC) · MediaPipe (Apache-2.0)</span>
         <button class="btn ghost" onclick={() => (resetSettings(), applySafety())}>Restaurar padrões</button>
       </section>
     </div>
@@ -314,6 +463,71 @@
   .muted {
     color: var(--muted);
     font-size: 12px;
+  }
+
+  .tag {
+    padding: 1px 6px;
+    border-radius: 4px;
+    background: var(--surface-3);
+    color: var(--warn);
+    font-size: 10px;
+    letter-spacing: 0.04em;
+  }
+
+  .ai-status {
+    color: var(--text-2);
+    font-size: 13px;
+    font-weight: 600;
+  }
+
+  .ai-status.ready {
+    color: var(--ok);
+  }
+
+  .ai-status.failed {
+    color: var(--warn);
+  }
+
+  .steps {
+    margin: 0;
+    padding-left: 20px;
+    color: var(--text-2);
+    font-size: 13px;
+    line-height: 1.45;
+  }
+
+  .calib {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    font-size: 13px;
+    font-weight: 600;
+  }
+
+  .calib.done {
+    color: var(--ok);
+  }
+
+  .calib.failed {
+    color: var(--warn);
+  }
+
+  .progress {
+    height: 6px;
+    border-radius: 3px;
+    background: var(--surface-3);
+    overflow: hidden;
+  }
+
+  .progress span {
+    display: block;
+    height: 100%;
+    background: var(--accent);
+    transition: width 0.3s;
+  }
+
+  .calib.done .progress span {
+    background: var(--ok);
   }
 
   .bar {

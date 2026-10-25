@@ -25,7 +25,7 @@ USO:
 OPÇÕES:
   --ip <ip>            IP do drone (padrão 192.168.10.1; simulador: 127.0.0.1)
   --segundos <n>       duração de cada etapa do diagnóstico (padrão 10)
-  --saida <pasta>      onde salvar vídeo e log (padrão: pasta atual)
+  --saida <pasta>      onde salvar vídeo, log e relatório do voo (padrão: pasta atual)
   --sem-pausa          não espera Enter no final";
 
 struct Options {
@@ -86,6 +86,8 @@ fn config(opts: &Options) -> Config {
     if let Some(ip) = opts.ip {
         cfg.drone_ip = ip;
     }
+    // Se o drone voar pelo console, o relatório do voo fica junto do log.
+    cfg.report_dir = Some(opts.out_dir.clone());
     cfg
 }
 

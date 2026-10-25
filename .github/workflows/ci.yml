@@ -40,6 +40,7 @@ jobs:
       - run: npm ci
       - run: npm run check
       - run: npm run build
+      - run: npm run test:unit
 
   scripts:
     name: Scripts de release (testes)

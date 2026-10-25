@@ -1,6 +1,7 @@
 // Ações de voo de alto nível, compartilhadas por botões, teclado e controle.
 
-import { backendRef, drone, emergency, isFlying, run, startVideo, stopVideo } from './drone.svelte';
+import { stopAutopilot } from '../ai/autopilot.svelte';
+import { backendRef, drone, emergency as droneEmergency, isFlying, run, startVideo, stopVideo } from './drone.svelte';
 import { errorText, stamp } from './format';
 import { toast } from './toasts.svelte';
 import type { FlipDir } from './types';
@@ -37,14 +38,19 @@ export function endTakeoffHold(): void {
 }
 
 export function land(): void {
+  stopAutopilot('Pousando', 'info');
   void run({ type: 'land' });
 }
 
 export function hover(): void {
+  stopAutopilot('Pairar', 'info');
   void run({ type: 'stop' }, null);
 }
 
-export { emergency };
+export function emergency(): void {
+  stopAutopilot('Emergência');
+  droneEmergency();
+}
 
 export interface FlipCheck {
   ok: boolean;

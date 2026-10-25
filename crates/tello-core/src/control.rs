@@ -1,12 +1,15 @@
 //! Estado compartilhado entre o handle público e os drivers: sticks,
-//! limites de segurança, telemetria e saúde do link.
+//! limites de segurança, telemetria, saúde do link e o gravador do voo.
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use crate::blackbox::{Blackbox, Channel};
-use crate::{DroneEvent, EventSink, Safety, Sticks, Telemetry, WarningCode};
+use crate::conditions::ConditionMonitor;
+use crate::report::{FlightRecorder, ReportOptions};
+use crate::util::unix_millis;
+use crate::{DroneEvent, EventSink, Safety, Sticks, Telemetry, VideoPolicy, VideoStats, WarningCode};
 
 /// Margem abaixo da altura máxima a partir da qual subir é bloqueado.
 const HEIGHT_MARGIN_CM: i32 = 10;
@@ -17,10 +20,15 @@ pub(crate) struct Shared {
     pub blackbox: Arc<Blackbox>,
     pub running: AtomicBool,
     pub flying: AtomicBool,
+    /// O usuário ligou o vídeo: religar depois de uma reconexão.
+    video_wanted: AtomicBool,
     sticks: Mutex<(Sticks, Instant)>,
     safety: Mutex<Safety>,
+    video: Mutex<VideoPolicy>,
     telemetry: Mutex<Telemetry>,
     link: Mutex<LinkState>,
+    conditions: Mutex<ConditionMonitor>,
+    recorder: Mutex<FlightRecorder>,
     auto_land_pending: AtomicBool,
     auto_land_done: AtomicBool,
 }
@@ -40,10 +48,14 @@ impl Shared {
             blackbox,
             running: AtomicBool::new(true),
             flying: AtomicBool::new(false),
+            video_wanted: AtomicBool::new(false),
             sticks: Mutex::new((Sticks::NEUTRAL, Instant::now())),
             safety: Mutex::new(safety),
+            video: Mutex::new(VideoPolicy::default()),
             telemetry: Mutex::new(Telemetry::default()),
             link: Mutex::new(LinkState::default()),
+            conditions: Mutex::new(ConditionMonitor::new()),
+            recorder: Mutex::new(FlightRecorder::default()),
             auto_land_pending: AtomicBool::new(false),
             auto_land_done: AtomicBool::new(false),
         }
@@ -60,7 +72,18 @@ impl Shared {
     pub fn warn(&self, code: WarningCode, message: impl Into<String>) {
         let message = message.into();
         self.blackbox.info(Channel::Core, format!("aviso {code:?}: {message}"));
+        self.recorder.lock().unwrap().warning(code, &message, Instant::now());
         self.emit(DroneEvent::Warning { code, message });
+    }
+
+    /// Resumo do vídeo do último segundo (vai também para o relatório do voo).
+    pub fn video_stats(&self, stats: VideoStats) {
+        self.recorder.lock().unwrap().video(&stats, Instant::now());
+        self.emit(DroneEvent::VideoStats(stats));
+    }
+
+    pub fn set_report_options(&self, options: ReportOptions) {
+        self.recorder.lock().unwrap().options = options;
     }
 
     pub fn set_sticks(&self, s: Sticks) {
@@ -75,21 +98,75 @@ impl Shared {
         *self.safety.lock().unwrap() = s;
     }
 
+    pub fn video_policy(&self) -> VideoPolicy {
+        *self.video.lock().unwrap()
+    }
+
+    pub fn set_video_policy(&self, p: VideoPolicy) {
+        *self.video.lock().unwrap() = p;
+    }
+
     pub fn telemetry(&self) -> Telemetry {
         self.telemetry.lock().unwrap().clone()
     }
 
     pub fn set_flying(&self, flying: bool) {
-        self.flying.store(flying, Ordering::Relaxed);
+        let was = self.flying.swap(flying, Ordering::Relaxed);
         if !flying {
             self.auto_land_pending.store(false, Ordering::Relaxed);
         } else {
             self.auto_land_done.store(false, Ordering::Relaxed);
         }
+        match (was, flying) {
+            (false, true) => self.start_flight(),
+            (true, false) => self.finish_flight(false),
+            _ => {}
+        }
+    }
+
+    fn start_flight(&self) {
+        let active = self.conditions.lock().unwrap().active();
+        let lost = self.link.lock().unwrap().lost;
+        self.recorder.lock().unwrap().start(Instant::now(), unix_millis(), &active, lost);
+    }
+
+    /// Fecha o relatório do voo em andamento, salva o HTML e avisa a UI.
+    pub fn finish_flight(&self, interrupted: bool) {
+        let (report, dir) = {
+            let mut recorder = self.recorder.lock().unwrap();
+            (recorder.finish(Instant::now(), interrupted), recorder.options.dir.clone())
+        };
+        let Some(report) = report else { return };
+        let path = dir.and_then(|dir| {
+            let path = dir.join(report.file_name());
+            match std::fs::create_dir_all(&dir).and_then(|_| std::fs::write(&path, report.render_html())) {
+                Ok(()) => Some(path.display().to_string()),
+                Err(e) => {
+                    self.blackbox.info(Channel::Core, format!("não foi possível salvar o relatório do voo: {e}"));
+                    None
+                }
+            }
+        });
+        let summary = report.summary;
+        self.blackbox.info(Channel::Core, format!("relatório do voo: {summary:?} em {path:?}"));
+        self.emit(DroneEvent::FlightReport { path, summary });
+    }
+
+    /// Condições de voo ativas agora.
+    pub fn conditions(&self) -> Vec<crate::Condition> {
+        self.conditions.lock().unwrap().active()
     }
 
     pub fn is_flying(&self) -> bool {
         self.flying.load(Ordering::Relaxed)
+    }
+
+    pub fn set_video_wanted(&self, on: bool) {
+        self.video_wanted.store(on, Ordering::Relaxed);
+    }
+
+    pub fn video_wanted(&self) -> bool {
+        self.video_wanted.load(Ordering::Relaxed)
     }
 
     /// Sticks que devem ser enviados agora, já com todos os limites aplicados.
@@ -137,11 +214,35 @@ impl Shared {
             link.last_state = Some(Instant::now());
             std::mem::replace(&mut link.lost, false)
         };
+        if from_link {
+            let mut recorder = self.recorder.lock().unwrap();
+            if restored {
+                recorder.link(false, Instant::now());
+            }
+            recorder.sample(&snapshot, Instant::now());
+        }
         if restored {
             self.warn(WarningCode::LinkRestored, "Telemetria voltou a chegar.");
         }
         self.check_battery(&snapshot);
+        self.check_conditions(&snapshot);
         self.emit(DroneEvent::Telemetry { data: snapshot });
+    }
+
+    fn check_conditions(&self, t: &Telemetry) {
+        let (update, active) = {
+            let mut monitor = self.conditions.lock().unwrap();
+            let update = monitor.update(t, self.is_flying(), Instant::now());
+            (update, monitor.active())
+        };
+        for c in update.warn {
+            self.warn(c.warning(), c.message());
+        }
+        if update.changed {
+            self.recorder.lock().unwrap().conditions(&active, Instant::now());
+            self.blackbox.info(Channel::Core, format!("condições ativas: {active:?}"));
+            self.emit(DroneEvent::Conditions { active });
+        }
     }
 
     fn check_battery(&self, t: &Telemetry) {
@@ -159,6 +260,18 @@ impl Shared {
         self.auto_land_pending.swap(false, Ordering::Relaxed)
     }
 
+    /// Há quanto tempo a telemetria parou, se o link foi dado como perdido.
+    pub fn link_lost_for(&self) -> Option<Duration> {
+        let link = self.link.lock().unwrap();
+        link.last_state.filter(|_| link.lost).map(|t| t.elapsed())
+    }
+
+    /// Um driver novo conectou: o relógio do link recomeça, mas ele só volta
+    /// a contar como restabelecido quando a telemetria chegar.
+    pub fn link_reconnected(&self) {
+        self.link.lock().unwrap().last_state = Some(Instant::now());
+    }
+
     /// Verifica a saúde do link; chamado periodicamente pelo loop de controle.
     pub fn check_link(&self, no_state_hint: &str) {
         let mut link = self.link.lock().unwrap();
@@ -172,6 +285,7 @@ impl Shared {
             Some(last) if last.elapsed() > LINK_TIMEOUT && !link.lost => {
                 link.lost = true;
                 drop(link);
+                self.recorder.lock().unwrap().link(true, Instant::now());
                 self.warn(WarningCode::LinkLost, "A telemetria parou de chegar. Verifique o Wi-Fi do drone.");
             }
             _ => {}

@@ -11,19 +11,22 @@
 pub mod app;
 pub mod blackbox;
 mod client;
+pub mod conditions;
 pub mod config;
 mod control;
 pub mod error;
 pub mod model;
 pub mod mp4;
 pub mod net;
+pub mod report;
 pub mod sdk;
 pub mod util;
 pub mod video;
+pub mod video_link;
 
 pub use blackbox::{Blackbox, Channel, Dir, Entry};
 pub use client::Drone;
-pub use config::{Config, Safety};
+pub use config::{Config, Safety, VideoPolicy};
 pub use error::Error;
 pub use model::*;
 pub use video::{NalAssembler, VideoFrame};

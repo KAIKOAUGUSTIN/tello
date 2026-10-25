@@ -22,6 +22,13 @@ pub struct Config {
     /// Pasta para as fotos em alta resolução (protocolo do app).
     pub photo_dir: Option<PathBuf>,
     pub safety: Safety,
+    pub video: VideoPolicy,
+    /// Refaz a conexão sozinho quando a telemetria para de chegar.
+    pub auto_reconnect: bool,
+    /// Pasta para o relatório de cada voo (`voo-<data>.html`).
+    pub report_dir: Option<PathBuf>,
+    /// Fuso do usuário em minutos a partir do UTC, para a hora do relatório.
+    pub utc_offset_min: i32,
 }
 
 impl Default for Config {
@@ -35,7 +42,40 @@ impl Default for Config {
             app_video_port: 6038,
             photo_dir: None,
             safety: Safety::default(),
+            video: VideoPolicy::default(),
+            auto_reconnect: true,
+            report_dir: None,
+            utc_offset_min: 0,
         }
+    }
+}
+
+/// Taxa do vídeo. Níveis do drone: 0 = automático, 1 = 1 Mbps, 2 = 1,5 Mbps,
+/// 3 = 2 Mbps, 4 = 3 Mbps e 5 = 4 Mbps.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct VideoPolicy {
+    /// Baixa a taxa quando o vídeo perde pacotes e sobe de novo quando o link
+    /// melhora (só no modo App, que informa a perda).
+    pub adaptive: bool,
+    /// Com `adaptive`, o nível máximo; sem, o nível fixo (0 = o drone escolhe).
+    pub level: u8,
+}
+
+impl VideoPolicy {
+    /// Nível máximo do modo adaptativo (o nível 0 vira o padrão).
+    pub fn max_level(&self) -> u8 {
+        if self.level == 0 {
+            VideoPolicy::default().level
+        } else {
+            self.level.min(5)
+        }
+    }
+}
+
+impl Default for VideoPolicy {
+    fn default() -> Self {
+        VideoPolicy { adaptive: true, level: 4 }
     }
 }
 

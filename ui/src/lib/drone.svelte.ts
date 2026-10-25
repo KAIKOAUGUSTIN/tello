@@ -1,10 +1,21 @@
 // Estado da conexão com o drone e ações de alto nível usadas pela UI.
 
 import { getBackend, type Backend } from './backend';
+import { CONDITIONS } from './conditions';
 import { errorText } from './format';
-import { safetyFromSettings, settings } from './settings.svelte';
+import { logsHint, platform } from './platform.svelte';
+import { safetyFromSettings, settings, videoFromSettings } from './settings.svelte';
 import { toast } from './toasts.svelte';
-import type { Action, Capabilities, DroneEvent, Telemetry } from './types';
+import type {
+  Action,
+  Calibration,
+  Capabilities,
+  Condition,
+  DroneEvent,
+  FlightSummary,
+  Telemetry,
+  VideoStats,
+} from './types';
 
 export type ConnState = 'disconnected' | 'connecting' | 'connected';
 
@@ -14,12 +25,20 @@ interface DroneState {
   telemetry: Telemetry | null;
   telemetryAt: number;
   linkLost: boolean;
+  /** Tentativa atual enquanto a conexão é refeita sozinha. */
+  reconnecting: number | null;
   /** Rótulo da ação em andamento (ex.: "Decolando"). */
   busy: string | null;
   videoOn: boolean;
+  /** Resumo do vídeo no último segundo. */
+  video: VideoStats | null;
   error: string | null;
   noState: boolean;
   noVideo: boolean;
+  /** Condições que costumam deixar o voo instável (pouca luz, vento...). */
+  conditions: Condition[];
+  /** Calibração da IMU em andamento ou o resultado da última. */
+  calibration: Calibration | null;
   confirmClose: boolean;
   /** Gravação em andamento (início em performance.now()). */
   recording: { since: number; path: string } | null;
@@ -31,11 +50,15 @@ export const drone: DroneState = $state({
   telemetry: null,
   telemetryAt: 0,
   linkLost: false,
+  reconnecting: null,
   busy: null,
   videoOn: false,
+  video: null,
   error: null,
   noState: false,
   noVideo: false,
+  conditions: [],
+  calibration: null,
   confirmClose: false,
   recording: null,
 });
@@ -74,24 +97,68 @@ function handleEvent(e: DroneEvent): void {
       if (e.code === 'no_video') drone.noVideo = true;
       if (e.code === 'link_lost') drone.linkLost = true;
       if (e.code === 'link_restored') drone.linkLost = false;
+      if (e.code === 'link_restored') drone.reconnecting = null;
       toast(e.code === 'link_restored' ? 'ok' : 'warn', warningTitle(e.code), e.message, 9000);
+      break;
+    case 'conditions':
+      drone.conditions = e.active;
+      break;
+    case 'video_stats':
+      drone.video = { fps: e.fps, kbps: e.kbps, loss_pct: e.loss_pct, level: e.level };
       break;
     case 'photo_saved':
       toast('ok', 'Foto salva', e.path);
       break;
+    case 'flight_report':
+      reportToast(e.path, e.summary);
+      break;
+    case 'calibration':
+      drone.calibration = { steps: e.steps, progress: e.progress, state: e.state };
+      if (e.state === 'done') toast('ok', 'Calibração concluída', 'Desligue e ligue o drone para aplicar.', 15000);
+      break;
+    case 'reconnecting':
+      drone.linkLost = true;
+      drone.reconnecting = e.attempt;
+      break;
     case 'disconnected':
       drone.conn = 'disconnected';
+      drone.reconnecting = null;
+      drone.calibration = null;
       drone.caps = null;
       drone.videoOn = false;
+      drone.video = null;
       drone.recording = null;
+      drone.conditions = [];
       break;
     case 'connected':
+      // Também chega depois de uma reconexão; o núcleo já religou o vídeo,
+      // mas uma calibração em andamento deixa de ser acompanhada.
       drone.caps = e.caps;
+      drone.reconnecting = null;
+      if (drone.calibration?.state === 'running') drone.calibration = null;
       break;
   }
 }
 
+function reportToast(path: string | null, s: FlightSummary): void {
+  const [min, sec] = [Math.floor(s.duration_s / 60), s.duration_s % 60];
+  const parts = [min > 0 ? `${min} min ${sec} s` : `${sec} s`];
+  if (s.battery_start !== null && s.battery_end !== null) {
+    parts.push(`bateria ${s.battery_start}% → ${s.battery_end}%`);
+  }
+  const n = s.causes.length;
+  parts.push(n === 0 ? 'nada fora do normal' : n === 1 ? '1 possível causa' : `${n} possíveis causas`);
+  let body = parts.join(' · ');
+  // No celular não há como abrir o navegador por aqui: o usuário abre o arquivo.
+  if (path && platform.mobile) body += `. O relatório completo está ${logsHint()}.`;
+  const open = (p: string) => void backend?.openReport(p).catch((e) => toast('error', 'Relatório', errorText(e)));
+  const canOpen = path && !platform.mobile && backend?.kind === 'tauri';
+  const action = canOpen ? { label: 'Abrir relatório', run: () => open(path) } : undefined;
+  toast(n > 0 ? 'warn' : 'ok', s.interrupted ? 'Voo interrompido' : 'Voo concluído', body, 15000, action);
+}
+
 function warningTitle(code: string): string {
+  if (code in CONDITIONS) return CONDITIONS[code as Condition].label;
   return (
     {
       no_state: 'Telemetria bloqueada',
@@ -122,12 +189,17 @@ export async function connect(): Promise<void> {
   drone.conn = 'connecting';
   drone.error = null;
   drone.noState = drone.noVideo = drone.linkLost = false;
+  drone.reconnecting = null;
+  drone.conditions = [];
+  drone.calibration = null;
   drone.telemetry = null;
   batteryAlerts.clear();
   try {
     const caps = await b.connect(settings.protocol, {
       drone_ip: settings.droneIp.trim(),
       safety: safetyFromSettings(settings),
+      video: videoFromSettings(settings),
+      utc_offset_min: -new Date().getTimezoneOffset(),
     });
     drone.caps = caps;
     drone.conn = 'connected';
@@ -142,9 +214,12 @@ export async function disconnect(): Promise<void> {
   if (isFlying() && !confirm('O drone está voando. Desconectar fará ele pousar sozinho em ~15 s. Continuar?')) return;
   await backend?.disconnect();
   drone.conn = 'disconnected';
+  drone.reconnecting = null;
   drone.caps = null;
   drone.videoOn = false;
+  drone.video = null;
   drone.recording = null;
+  drone.conditions = [];
 }
 
 export async function startVideo(): Promise<void> {
@@ -152,7 +227,10 @@ export async function startVideo(): Promise<void> {
 }
 
 export async function stopVideo(): Promise<void> {
-  if (await run({ type: 'stream_off' }, null)) drone.videoOn = false;
+  if (await run({ type: 'stream_off' }, null)) {
+    drone.videoOn = false;
+    drone.video = null;
+  }
 }
 
 /** Executa uma ação; erros viram toasts. `label` mostra um indicador de progresso. */
@@ -177,8 +255,41 @@ export function emergency(): void {
   toast('error', 'EMERGÊNCIA', 'Motores desligados.');
 }
 
+/** Altura máxima para a calibração do centro de massa (igual à do tello-core). */
+export const COG_MAX_HEIGHT_CM = 150;
+
+/** Calibração do centro de massa (experimental): o drone precisa estar pairando baixo. */
+export async function calibrateCog(): Promise<void> {
+  if (!backend || drone.conn !== 'connected') return;
+  const ok = confirm(
+    'Recurso experimental: o comando não é documentado pela fabricante.\n\n' +
+      'Use num lugar fechado, com espaço, longe de pessoas, e fique com o dedo no botão de Emergência. ' +
+      'Depois de enviar, não mexa nos sticks por alguns segundos. Continuar?',
+  );
+  if (!ok) return;
+  drone.busy = 'Calibrando centro de massa';
+  try {
+    const reply = await backend.action({ type: 'calibrate_cog' });
+    const confirmed = reply === 'ok';
+    toast(
+      confirmed ? 'ok' : 'warn',
+      confirmed ? 'O drone aceitou a calibração' : 'Enviado, sem confirmação do drone',
+      'Deixe pairando sem mexer nos sticks por alguns segundos e depois pouse. A resposta do drone fica na caixa-preta.',
+      12000,
+    );
+  } catch (e) {
+    toast('error', 'Calibração recusada', errorText(e));
+  } finally {
+    if (drone.busy === 'Calibrando centro de massa') drone.busy = null;
+  }
+}
+
 export function applySafety(): void {
   backend?.setSafety(safetyFromSettings(settings));
+}
+
+export function applyVideo(): void {
+  backend?.setVideoPolicy(videoFromSettings(settings));
 }
 
 export async function landAndQuit(): Promise<void> {

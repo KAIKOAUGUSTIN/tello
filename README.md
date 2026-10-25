@@ -103,13 +103,48 @@ O mapeamento segue o **modo 2** (o do app oficial). Nas configurações dá para
 - Fechar o app com o drone voando abre uma confirmação para pousar antes.
 - Flips ficam desativados abaixo de 50% de bateria, porque o próprio drone recusa.
 
+### Estabilidade
+
+Quem segura o drone no ar é o controlador de voo dele, com a IMU, a câmera de baixo e o sensor de distância. O app ajuda do lado de cá: avisa quando o ambiente atrapalha e cuida do link.
+
+- **Avisos de condição de voo.** Cada aviso aparece como um selo no topo da tela enquanto a condição dura (e só depois de ela se manter por 3 s):
+  - **Pouca luz** (modo App): a câmera de baixo precisa de luz e de um chão com textura; sem isso o drone deriva.
+  - **Vento forte** (modo App), detectado pelo próprio drone.
+  - **Sinal Wi-Fi fraco**, abaixo de 30%. No modo SDK o app consulta o sinal a cada 5 s.
+  - **Acima de 6 m**: a câmera de baixo deixa de enxergar o chão.
+- **Qualidade de vídeo adaptativa** (modo App, ligada por padrão). O app mede os pacotes de vídeo perdidos. Se a perda passa de 5% por 2 s, ele baixa a taxa do drone um nível, até 1 Mbps; depois de 15 s sem perda, sobe de novo até o teto escolhido em **Configurações → Vídeo**. A cada perda o app também pede um quadro-chave na hora, para a imagem se recompor rápido. Os níveis do drone são 1, 1,5, 2, 3 e 4 Mbps. No modo SDK, só o Tello EDU e o RoboMaster TT (SDK 3) aceitam taxa fixa.
+- **Reconexão automática.** Se a telemetria some por 5 s, o app refaz a conexão do zero (sockets novos e handshake) a cada 2 s, e o topo da tela mostra "Reconectando… (tentativa N)". Ao voltar, religa o vídeo e o modo rápido como estavam. Sem comandos por uns 15 s, o Tello pousa sozinho; por isso a reconexão começa cedo. Enquanto ela acontece, os comandos são recusados com o aviso "reconectando".
+- **Relatório do voo.** Da decolagem ao pouso, o app guarda uma amostra por segundo de bateria, altura, Wi-Fi, temperatura e perda de vídeo, além dos avisos e de quando cada condição esteve ativa. No pouso, salva um `voo-<data>-<hora>.html` na pasta de logs, com o resumo, gráficos, uma linha do tempo e as **possíveis causas** de instabilidade (pouca luz, vento, sinal fraco, vídeo perdendo pacotes, temperatura, bateria, quedas de conexão). No computador, o aviso de fim de voo tem o botão **Abrir relatório**; no celular, abra o arquivo pela pasta de logs (tabela abaixo). O arquivo não depende de internet: abre em qualquer navegador.
+- **Calibração da IMU** (modo App), em **Configurações → Calibração da IMU**. Use quando o drone deriva mesmo com boa luz e sem vento, ou depois de uma queda. Com as hélices fora e o drone no chão, toque em **Calibrar** e gire o drone pelas 6 posições (normal, de cabeça para baixo, de cada lado e com o nariz para cima e para baixo), segurando cada uma até o contador avançar. No fim, desligue e ligue o drone. Com o drone voando, o comando é recusado.
+- **Calibração do centro de massa** (modo App, **experimental**), em **Configurações → Centro de massa**. Serve para o drone que puxa sempre para o mesmo lado ao pairar, mesmo com a IMU calibrada. O comando (`0x1054` com valor 1) só aparece na documentação da comunidade, sem teste conhecido; por isso o app só o envia com o drone pairando a menos de 1,5 m, com os sticks soltos e sem vento detectado, pede confirmação e grava na caixa-preta tudo o que o drone responder. Use num lugar fechado, com espaço, e com o dedo no botão de emergência.
+
+Os itens marcados com "modo App" dependem do protocolo do app oficial: conecte em **Recursos do app**. No modo **SDK oficial** o drone não informa luz, vento nem perda de vídeo, e não aceita as calibrações.
+
+### IA (experimental)
+
+Em **Configurações → IA**, o app reconhece pessoas no vídeo com o detector de pose do [MediaPipe](https://ai.google.dev/edge/mediapipe/solutions/vision/pose_landmarker), que marca 33 pontos do corpo. Vem desligada.
+
+- **Tudo no aparelho.** O motor e o modelo vêm dentro do app, e a análise roda num worker, sem travar a interface. Nada precisa de internet (no Wi-Fi do drone ela nem existe). O MediaPipe tenta enviar métricas de uso ao Google; o app bloqueia esse envio e qualquer outro acesso à rede a partir da IA.
+- **Desempenho.** Até 15 análises por segundo, numa cópia do quadro reduzida a 480×360. O app tenta a GPU e passa para a CPU se ela falhar ou for lenta (sem placa de vídeo, a GPU é emulada e fica umas dez vezes mais lenta). O status aparece nas configurações, por exemplo "Pronta · CPU · 11 análises/s · 54 ms".
+- **Limites do modelo.** Funciona melhor com uma pessoa por vez, a até uns 4 m, com boa luz e a cabeça visível. Por causa do atraso do vídeo (200 a 300 ms), só serve para movimentos lentos.
+- **Tamanho.** O motor e o modelo somam uns 19 MB no app (9 MB comprimidos). O APK universal do Android leva uma cópia do app para cada tipo de processador, então lá eles pesam três vezes.
+
+#### Seguir pessoa
+
+Com o drone no ar, aperte **F** ou o botão **Seguir pessoa** (barra lateral; no celular, **Seguir** nos botões rápidos). O app trava a pessoa maior perto do centro da imagem e passa a girar para mantê-la no meio e a avançar ou recuar para manter a distância do momento em que você ligou. A altura continua com você.
+
+- **Para ligar:** IA pronta, vídeo ligado, pelo menos 6 análises por segundo e uma pessoa no centro, entre uns 1,5 e 4 m. Se faltar algo, o app diz o quê.
+- **Devagar de propósito.** A IA usa no máximo 35% do giro e 30% do avanço, com mudanças suaves, e soma esses limites aos do app (modo iniciante, altura máxima). No modo rápido do drone, tudo cai pela metade. Sem os quadris na imagem, o drone só pode recuar.
+- **Na dúvida, paira.** Se a pessoa some ou as análises atrasam, o drone fica parado e o aviso "Pessoa perdida: pairando" aparece. Com outra pessoa na imagem, a escolhida continua a mesma (as outras ficam apagadas no esqueleto).
+- **Desliga sozinho**, com aviso e o motivo: qualquer toque nos controles (teclado, controle, sticks na tela), Espaço, pousar ou emergência, drone no chão, conexão ou sinal perdidos, vídeo desligado, janela sem foco ou app em segundo plano, pessoa sumida por 15 s ou análises lentas por 3 s. Cada liga e desliga fica registrado na caixa-preta.
+
 ### Onde ficam os arquivos
 
 | Tipo | Windows, macOS e Linux | Android | iOS |
 |---|---|---|---|
 | Fotos de 5 MP e capturas | `Imagens/Tello Pilot` | Galeria, pasta `Pictures/Tello Pilot` | App **Arquivos** → Tello Pilot → `Fotos` |
 | Vídeos gravados (MP4) | `Vídeos/Tello Pilot` | Galeria, pasta `Movies/Tello Pilot` | App **Arquivos** → Tello Pilot → `Videos` |
-| Logs exportados | `Documentos/Tello Pilot/logs` | `Documents/Tello Pilot` | App **Arquivos** → Tello Pilot → `Logs` |
+| Logs exportados e relatórios de voo | `Documentos/Tello Pilot/logs` | `Documents/Tello Pilot` | App **Arquivos** → Tello Pilot → `Logs` |
 
 No Android 10 ou mais antigo, tudo fica na pasta do app (`Android/data/io.github.kaikoaugustin.tellopilot/files/Documents`).
 
@@ -221,7 +256,7 @@ scripts/release     versão automática e changelog
 
 ### Dependências
 
-O que é o coração do projeto é feito à mão: os protocolos do Tello, CRCs, montagem do vídeo, parser de SPS e o gravador MP4. O que é infraestrutura grande vem pronto: decodificação de vídeo (WebCodecs, do próprio sistema), controle (Gamepad API), janela e instalador (Tauri), interface (Svelte) e serialização (serde).
+O que é o coração do projeto é feito à mão: os protocolos do Tello, CRCs, montagem do vídeo, parser de SPS e o gravador MP4. O que é infraestrutura grande vem pronto: decodificação de vídeo (WebCodecs, do próprio sistema), controle (Gamepad API), janela e instalador (Tauri), interface (Svelte), serialização (serde) e detecção de pose para a IA (MediaPipe).
 
 ### Protocolos
 
@@ -235,4 +270,4 @@ O que é o coração do projeto é feito à mão: os protocolos do Tello, CRCs, 
 
 ## Licença
 
-GPL-3.0. Ícones do [Lucide](https://lucide.dev) (licença ISC).
+GPL-3.0. Ícones do [Lucide](https://lucide.dev) (licença ISC). Motor e modelo de pose do [MediaPipe](https://github.com/google-ai-edge/mediapipe) (licença Apache-2.0, ver `ui/src/ai/LICENSE-mediapipe.txt`).

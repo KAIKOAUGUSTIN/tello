@@ -4,9 +4,7 @@
 //! - o vídeo vai por um `Channel` binário: [flags u8][seq u32 LE][Annex B];
 //! - a caixa-preta é enviada em lotes como `drone-log`.
 
-#[cfg(desktop)]
-use std::path::Path;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -14,7 +12,9 @@ use tauri::ipc::{Channel, InvokeBody, InvokeResponseBody, Request};
 use tauri::{AppHandle, Emitter, Manager, State, WindowEvent};
 use tello_core::mp4::Mp4Writer;
 use tello_core::net::{self, NetworkCheck};
-use tello_core::{Action, Blackbox, Capabilities, Config, Drone, DroneEvent, Entry, Protocol, Safety, Sticks};
+use tello_core::{
+    Action, Blackbox, Capabilities, Config, Drone, DroneEvent, Entry, Protocol, Safety, Sticks, VideoPolicy,
+};
 
 type CmdResult<T> = Result<T, String>;
 type VideoChannel = Arc<Mutex<Option<Channel<InvokeResponseBody>>>>;
@@ -71,6 +71,8 @@ async fn connect(
 ) -> CmdResult<Capabilities> {
     // Fotos em alta resolução (modo App) vão para Imagens/Tello Pilot.
     config.photo_dir = media_dir(&app, "photos").ok();
+    // O relatório de cada voo fica junto dos logs.
+    config.report_dir = media_dir(&app, "logs").ok();
     let old = state.drone.lock().unwrap().take();
     if let Some(old) = old {
         let _ = tauri::async_runtime::spawn_blocking(move || old.disconnect()).await;
@@ -140,8 +142,21 @@ fn set_safety(state: State<'_, AppState>, safety: Safety) {
 }
 
 #[tauri::command]
+fn set_video_policy(state: State<'_, AppState>, policy: VideoPolicy) {
+    if let Some(d) = state.drone.lock().unwrap().as_ref() {
+        d.set_video_policy(policy);
+    }
+}
+
+#[tauri::command]
 fn set_video_channel(state: State<'_, AppState>, channel: Channel<InvokeResponseBody>) {
     *state.video.lock().unwrap() = Some(channel);
+}
+
+/// Anota na caixa-preta um evento da interface (ex.: a IA assumiu ou largou o controle).
+#[tauri::command]
+fn log_note(state: State<'_, AppState>, text: String) {
+    state.blackbox.info(tello_core::Channel::Core, format!("ui: {text}"));
 }
 
 #[tauri::command]
@@ -195,6 +210,20 @@ fn open_folder(app: AppHandle, kind: String) -> CmdResult<()> {
     // No celular não há gerenciador de arquivos para abrir: a UI mostra uma dica.
     #[cfg(mobile)]
     Err(format!("abra a pasta {} pelo gerenciador de arquivos do aparelho", dir.display()))
+}
+
+/// Abre um relatório de voo no navegador. Só aceita HTML da pasta de logs.
+#[tauri::command]
+fn open_report(app: AppHandle, path: String) -> CmdResult<()> {
+    let logs = media_dir(&app, "logs")?.canonicalize().map_err(|e| e.to_string())?;
+    let file = Path::new(&path).canonicalize().map_err(|e| e.to_string())?;
+    if !file.starts_with(&logs) || !matches!(file.extension(), Some(ext) if ext == "html") {
+        return Err("relatório fora da pasta de logs".into());
+    }
+    #[cfg(desktop)]
+    return open_path(&file).map_err(|e| e.to_string());
+    #[cfg(mobile)]
+    Err(format!("abra {} pelo app Arquivos do aparelho", file.display()))
 }
 
 #[derive(serde::Serialize)]
@@ -348,13 +377,16 @@ pub fn run() {
             action,
             set_sticks,
             set_safety,
+            set_video_policy,
             set_video_channel,
+            log_note,
             log_snapshot,
             export_log,
             save_snapshot,
             start_recording,
             stop_recording,
             open_folder,
+            open_report,
             platform_info,
             land_and_quit,
         ])

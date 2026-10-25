@@ -1,9 +1,12 @@
 <script lang="ts">
   // Botões grandes sobre o vídeo no layout compacto (celular): decolar/pousar e
-  // pairar à esquerda, foto e gravação à direita, como no app oficial.
+  // pairar à esquerda, foto e gravação à direita, como no app oficial. O seguir
+  // da IA fica ao lado do decolar/pousar, para não descer até os sticks.
   import { elapsed } from '../lib/clock.svelte';
   import { beginTakeoffHold, endTakeoffHold, hold, hover, land, photo, toggleRecording } from '../lib/commands.svelte';
   import { drone, isFlying } from '../lib/drone.svelte';
+  import { settings } from '../lib/settings.svelte';
+  import { autopilot, toggleFollow } from '../ai/autopilot.svelte';
   import Icon from './Icon.svelte';
 
   const flying = $derived(isFlying());
@@ -35,6 +38,18 @@
     <Icon name="pause" size={18} />
     <span>Pairar</span>
   </button>
+  {#if settings.aiEnabled}
+    <button
+      class="act follow"
+      class:on={autopilot.follow}
+      disabled={!flying && !autopilot.follow}
+      onclick={toggleFollow}
+      aria-label={autopilot.follow ? 'Parar de seguir' : 'Seguir pessoa'}
+    >
+      <Icon name="person-standing" size={18} />
+      <span>Seguir</span>
+    </button>
+  {/if}
 </div>
 
 <div class="col right">
@@ -65,6 +80,15 @@
 
   .left {
     left: calc(12px + var(--safe-left));
+    display: grid;
+    grid-template-columns: 64px;
+    grid-auto-columns: 52px;
+    justify-items: center;
+    align-items: center;
+  }
+
+  .left .follow {
+    grid-area: 1 / 2;
   }
 
   .right {
@@ -119,6 +143,12 @@
   .land {
     border-color: rgb(251 191 36 / 0.55);
     color: var(--warn);
+  }
+
+  .follow.on {
+    border-color: rgb(45 212 238 / 0.7);
+    background: rgb(45 212 238 / 0.25);
+    color: var(--accent);
   }
 
   .shutter {

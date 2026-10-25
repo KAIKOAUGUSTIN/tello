@@ -11,6 +11,7 @@ import type {
   Safety,
   Sticks,
   VideoPacket,
+  VideoPolicy,
 } from './types';
 
 export type FolderKind = 'photos' | 'videos' | 'logs';
@@ -26,6 +27,7 @@ export interface Backend {
   action(action: Action): Promise<string>;
   setSticks(sticks: Sticks): void;
   setSafety(safety: Safety): void;
+  setVideoPolicy(policy: VideoPolicy): void;
   onEvent(cb: (e: DroneEvent) => void): Unsubscribe;
   onVideo(cb: (p: VideoPacket) => void): Unsubscribe;
   onLog(cb: (entries: LogEntry[]) => void): Unsubscribe;
@@ -37,6 +39,10 @@ export interface Backend {
   startRecording(stamp: string): Promise<string>;
   stopRecording(): Promise<RecordingResult>;
   openFolder(kind: FolderKind): Promise<void>;
+  /** Abre o relatório de um voo (HTML da pasta de logs) no navegador. */
+  openReport(path: string): Promise<void>;
+  /** Anota um evento da interface na caixa-preta. */
+  logNote(text: string): Promise<void>;
   landAndQuit(): Promise<void>;
 }
 

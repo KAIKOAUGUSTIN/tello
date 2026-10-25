@@ -80,15 +80,16 @@ impl FlightData {
         t.battery = Some(self.battery);
         t.battery_low = Some(self.battery_low || self.battery_lower);
         t.flying = Some(self.em_sky);
+        t.wind = Some(self.wind_state);
     }
 }
 
-/// Mensagem de Wi-Fi (0x1A): intensidade do sinal.
-pub fn parse_wifi(p: &[u8]) -> Option<u8> {
-    p.first().copied()
+/// Mensagem de Wi-Fi (0x1A): intensidade do sinal e interferência, em %.
+pub fn parse_wifi(p: &[u8]) -> Option<(u8, Option<u8>)> {
+    Some((*p.first()?, p.get(1).copied()))
 }
 
-/// Mensagem de luz (0x35): luminosidade do ambiente.
+/// Mensagem de luz (0x35), a cada ~2 s: 0 = luz suficiente, 1 = pouca luz.
 pub fn parse_light(p: &[u8]) -> Option<u8> {
     p.first().copied()
 }
@@ -98,6 +99,12 @@ pub fn parse_version(p: &[u8]) -> Option<String> {
     let text: String =
         p.get(1..)?.iter().take_while(|&&b| b != 0).filter(|b| b.is_ascii_graphic()).map(|&b| b as char).collect();
     (!text.is_empty()).then_some(text)
+}
+
+/// Andamento da calibração da IMU (0x5B): posições já aceitas (0..=6) e progresso em %.
+pub fn parse_calibration(p: &[u8]) -> Option<(u8, u8)> {
+    let (mask, progress) = (*p.get(1)?, *p.get(3)?);
+    Some(((mask & 0x3f).count_ones() as u8, progress.min(100)))
 }
 
 /// Limite de altura (0x1056): metros em LE16 após o primeiro byte.
@@ -119,6 +126,7 @@ mod tests {
             battery: 76,
             em_sky: true,
             battery_low: true,
+            wind_state: true,
             ..Default::default()
         };
         let parsed = FlightData::parse(&fd.encode()).unwrap();
@@ -130,6 +138,7 @@ mod tests {
         assert_eq!(t.battery, Some(76));
         assert_eq!(t.flying, Some(true));
         assert_eq!(t.battery_low, Some(true));
+        assert_eq!(t.wind, Some(true));
     }
 
     #[test]
@@ -141,6 +150,15 @@ mod tests {
     fn parses_small_messages() {
         assert_eq!(parse_version(b"\x0001.04.92.01\x00\x00"), Some("01.04.92.01".into()));
         assert_eq!(parse_alt_limit(&[0, 10, 0]), Some(10));
-        assert_eq!(parse_wifi(&[90, 0]), Some(90));
+        assert_eq!(parse_wifi(&[90, 12]), Some((90, Some(12))));
+        assert_eq!(parse_wifi(&[70]), Some((70, None)));
+        assert_eq!(parse_wifi(&[]), None);
+    }
+
+    #[test]
+    fn parses_calibration_progress() {
+        assert_eq!(parse_calibration(&[0, 0b0000_0111, 0, 45, 0]), Some((3, 45)));
+        assert_eq!(parse_calibration(&[0, 0xff, 0, 120, 0]), Some((6, 100)), "só 6 posições, no máximo 100%");
+        assert_eq!(parse_calibration(&[0, 1, 0]), None);
     }
 }

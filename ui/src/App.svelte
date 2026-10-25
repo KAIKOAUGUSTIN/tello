@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
+  import { onMount, untrack } from 'svelte';
 
   import ConnectScreen from './components/ConnectScreen.svelte';
   import DebugLog from './components/DebugLog.svelte';
@@ -18,10 +18,13 @@
   } from './lib/commands.svelte';
   import { drone, initDrone, landAndQuit } from './lib/drone.svelte';
   import { startPlatform } from './lib/platform.svelte';
+  import { settings } from './lib/settings.svelte';
   import { keepScreenOn } from './lib/wakelock';
   import { startGamepad } from './input/gamepad';
   import { startKeyboard, type Shortcut } from './input/keyboard';
   import { startMixer } from './input/mixer.svelte';
+  import { toggleFollow } from './ai/autopilot.svelte';
+  import { startAi, stopAi } from './ai/engine.svelte';
 
   let settingsOpen = $state(false);
   let logOpen = $state(false);
@@ -35,6 +38,7 @@
     if (s === 'photo') photo();
     if (s === 'record') void toggleRecording();
     if (s === 'emergency') emergency();
+    if (s === 'follow' && settings.aiEnabled) toggleFollow();
   }
 
   onMount(() => {
@@ -48,6 +52,14 @@
 
   $effect(() => {
     if (drone.conn === 'connected') return keepScreenOn();
+  });
+
+  // O modelo carrega ao ligar a IA (não a cada conexão) e só analisa enquanto o vídeo chega.
+  // Só depende do ajuste: o estado do motor muda dentro de startAi/stopAi.
+  $effect(() => {
+    if (!settings.aiEnabled) return;
+    untrack(startAi);
+    return () => untrack(stopAi);
   });
 </script>
 

@@ -1,6 +1,6 @@
 // Preferências do usuário, salvas no navegador do app (localStorage).
 
-import type { Protocol, Safety } from './types';
+import type { Protocol, Safety, VideoPolicy } from './types';
 
 export interface Settings {
   protocol: Protocol;
@@ -15,8 +15,18 @@ export interface Settings {
   expo: number;
   invertPitch: boolean;
   autoStartVideo: boolean;
+  /** Ajusta a taxa do vídeo pela perda de pacotes (modo App). */
+  adaptiveVideo: boolean;
+  /** Teto (adaptativo) ou nível fixo da taxa: 0 = automático do drone, 1..5. */
+  videoLevel: number;
   showSticks: boolean;
   rumble: boolean;
+  /** IA experimental (detector de pose no próprio aparelho). */
+  aiEnabled: boolean;
+  /** Já leu o aviso da IA experimental. */
+  aiAcknowledged: boolean;
+  /** Desenha o esqueleto das pessoas sobre o vídeo. */
+  aiOverlay: boolean;
 }
 
 const DEFAULTS: Settings = {
@@ -31,8 +41,13 @@ const DEFAULTS: Settings = {
   expo: 0.3,
   invertPitch: false,
   autoStartVideo: true,
+  adaptiveVideo: true,
+  videoLevel: 4,
   showSticks: true,
   rumble: true,
+  aiEnabled: false,
+  aiAcknowledged: false,
+  aiOverlay: true,
 };
 
 const KEY = 'tello-pilot.settings.v1';
@@ -64,6 +79,12 @@ export function resetSettings(): void {
 
 /** Modo iniciante: sticks a 40% e no máximo 3 m de altura. */
 export const BEGINNER = { stickLimit: 0.4, maxHeightCm: 300 };
+
+export function videoFromSettings(s: Settings): VideoPolicy {
+  // No modo adaptativo o nível é o teto: "automático" não serve de teto.
+  const level = s.adaptiveVideo && s.videoLevel === 0 ? DEFAULTS.videoLevel : s.videoLevel;
+  return { adaptive: s.adaptiveVideo, level };
+}
 
 export function safetyFromSettings(s: Settings): Safety {
   return {

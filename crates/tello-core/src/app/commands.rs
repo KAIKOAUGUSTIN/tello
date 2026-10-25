@@ -1,7 +1,11 @@
 //! Tradução de [`Action`] para pacotes do protocolo do app.
 
 use super::packet::{id, kind, Packet};
-use crate::{Action, Error, FlipDir, SmartVideo};
+use crate::{Action, Condition, Error, FlipDir, SmartVideo, Sticks, Telemetry};
+
+/// Altura máxima para a calibração do centro de massa: perto do chão um
+/// comportamento estranho do drone faz menos estrago.
+pub const COG_MAX_HEIGHT_CM: i32 = 150;
 
 /// O que o driver deve fazer para executar uma ação.
 #[derive(Clone, Debug, PartialEq)]
@@ -15,6 +19,10 @@ pub enum AppCommand {
     SetFast(bool),
     VideoOn,
     VideoOff,
+    /// Começa a calibração da IMU e acompanha o andamento.
+    CalibrateImu,
+    /// Calibração do centro de massa (experimental), depois das checagens.
+    CalibrateCog(Packet),
 }
 
 pub fn flip_code(dir: FlipDir) -> u8 {
@@ -56,6 +64,8 @@ pub fn translate(action: &Action) -> Result<AppCommand, Error> {
         Action::StreamOn => VideoOn,
         Action::StreamOff => VideoOff,
         Action::SetFastMode { on } => SetFast(*on),
+        Action::CalibrateImu => CalibrateImu,
+        Action::CalibrateCog => CalibrateCog(Packet::new(kind::SET, id::CALIBRATE, vec![1])),
         Action::SetMaxHeight { m } => {
             if !(1..=30).contains(m) {
                 return Err(Error::Protocol(format!("altura máxima fora do intervalo 1..30 m: {m}")));
@@ -75,9 +85,46 @@ pub fn translate(action: &Action) -> Result<AppCommand, Error> {
     })
 }
 
+/// Travas da calibração do centro de massa: pairando, baixo, sem vento e sem
+/// ninguém mexendo nos sticks.
+pub fn check_cog_calibration(t: &Telemetry, flying: bool, sticks: Sticks, active: &[Condition]) -> Result<(), Error> {
+    let refuse = |why: &str| Err(Error::Refused(why.into()));
+    if !flying {
+        return refuse("decole e deixe o drone pairando antes de calibrar o centro de massa");
+    }
+    match t.height_cm {
+        None => return refuse("a altura do drone ainda não chegou"),
+        Some(h) if h > COG_MAX_HEIGHT_CM => return refuse("desça para menos de 1,5 m antes de calibrar"),
+        _ => {}
+    }
+    if !sticks.is_neutral() {
+        return refuse("solte os sticks: o drone precisa estar pairando parado");
+    }
+    if active.contains(&Condition::Wind) {
+        return refuse("com vento a calibração sai errada: voe num lugar fechado");
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn cog_calibration_needs_a_low_still_hover() {
+        let low = Telemetry { height_cm: Some(80), ..Default::default() };
+        let still = Sticks::NEUTRAL;
+        assert!(check_cog_calibration(&low, true, still, &[]).is_ok());
+        assert!(check_cog_calibration(&low, true, still, &[Condition::LowLight]).is_ok());
+        let refused = |r: Result<(), Error>| matches!(r, Err(Error::Refused(_)));
+        assert!(refused(check_cog_calibration(&low, false, still, &[])), "no chão");
+        let high = Telemetry { height_cm: Some(151), ..Default::default() };
+        assert!(refused(check_cog_calibration(&high, true, still, &[])), "alto demais");
+        assert!(refused(check_cog_calibration(&Telemetry::default(), true, still, &[])), "sem altura");
+        let moving = Sticks { roll: 0.2, ..Sticks::NEUTRAL };
+        assert!(refused(check_cog_calibration(&low, true, moving, &[])), "sticks fora do centro");
+        assert!(refused(check_cog_calibration(&low, true, still, &[Condition::Wind])), "vento");
+    }
 
     #[test]
     fn translates_app_features() {

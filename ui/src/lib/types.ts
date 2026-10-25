@@ -43,6 +43,8 @@ export type Action =
   | { type: 'set_fast_mode'; on: boolean }
   | { type: 'set_max_height'; m: number }
   | { type: 'set_video_bitrate'; level: number }
+  | { type: 'calibrate_imu' }
+  | { type: 'calibrate_cog' }
   | { type: 'raw'; text: string };
 
 export type Model = 'unknown' | 'tello' | 'tello_edu' | 'robo_master_tt';
@@ -66,6 +68,9 @@ export interface Capabilities {
   stop: boolean;
   mission_pads: boolean;
   raw_commands: boolean;
+  imu_calibration: boolean;
+  /** Calibração do centro de massa (experimental). */
+  cog_calibration: boolean;
 }
 
 export interface MissionPad {
@@ -94,18 +99,35 @@ export interface Telemetry {
   flying: boolean | null;
   mission_pad: MissionPad | null;
   battery_low: boolean | null;
+  /** 0 = luz suficiente, 1 = pouca luz (modo App). */
   light_strength: number | null;
   fast_mode: boolean | null;
+  wind: boolean | null;
+  wifi_interference: number | null;
 }
 
-export type WarningCode = 'no_state' | 'no_video' | 'link_lost' | 'link_restored' | 'auto_land' | 'other';
+export type Condition = 'low_light' | 'wind' | 'weak_signal' | 'high_altitude';
+
+export type WarningCode =
+  | 'no_state'
+  | 'no_video'
+  | 'link_lost'
+  | 'link_restored'
+  | 'auto_land'
+  | Condition
+  | 'other';
 
 export type DroneEvent =
   | { type: 'connected'; caps: Capabilities }
   | { type: 'disconnected'; reason: string }
+  | { type: 'reconnecting'; attempt: number }
   | { type: 'telemetry'; data: Telemetry }
   | { type: 'warning'; code: WarningCode; message: string }
-  | { type: 'photo_saved'; path: string };
+  | { type: 'conditions'; active: Condition[] }
+  | ({ type: 'video_stats' } & VideoStats)
+  | ({ type: 'calibration' } & Calibration)
+  | { type: 'photo_saved'; path: string }
+  | { type: 'flight_report'; path: string | null; summary: FlightSummary };
 
 export interface LogEntry {
   t_ms: number;
@@ -122,9 +144,55 @@ export interface Safety {
   stick_timeout_ms: number;
 }
 
+/** Níveis do drone: 0 = automático, 1 = 1 Mbps, 2 = 1,5, 3 = 2, 4 = 3 e 5 = 4 Mbps. */
+export interface VideoPolicy {
+  /** Baixa a taxa quando o vídeo perde pacotes (modo App); `level` vira o teto. */
+  adaptive: boolean;
+  level: number;
+}
+
+export interface VideoStats {
+  fps: number;
+  kbps: number;
+  /** Só no modo App. */
+  loss_pct: number | null;
+  level: number | null;
+}
+
+export type CalibrationState = 'running' | 'done' | 'timed_out';
+
+/** Andamento da calibração da IMU (modo App). */
+export interface Calibration {
+  /** Posições já aceitas pelo drone (0 a 6). */
+  steps: number;
+  progress: number;
+  state: CalibrationState;
+}
+
+/** Resumo do voo, gerado no pouso junto com o relatório em HTML. */
+export interface FlightSummary {
+  started_unix_ms: number;
+  duration_s: number;
+  interrupted: boolean;
+  battery_start: number | null;
+  battery_end: number | null;
+  max_height_cm: number | null;
+  wifi_min: number | null;
+  wifi_avg: number | null;
+  video_loss_avg: number | null;
+  temp_max_c: number | null;
+  warnings: number;
+  link_lost_s: number;
+  /** Possíveis causas de instabilidade. */
+  causes: string[];
+}
+
 export interface Config {
   drone_ip: string;
   safety: Safety;
+  video: VideoPolicy;
+  /** Fuso do usuário em minutos a partir do UTC, para a hora do relatório. */
+  utc_offset_min: number;
 }
 
 export interface NetworkCheck {

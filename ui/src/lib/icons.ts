@@ -51,6 +51,13 @@ export const icons = {
   'circle-stop': '<circle cx="12" cy="12" r="10" /><rect x="9" y="9" width="6" height="6" rx="1" />',
   crosshair: '<circle cx="12" cy="12" r="10" /><line x1="22" x2="18" y1="12" y2="12" /><line x1="6" x2="2" y1="12" y2="12" /><line x1="12" x2="12" y1="6" y2="2" /><line x1="12" x2="12" y1="22" y2="18" />',
   'arrow-down-to-line': '<path d="M12 17V3" /><path d="m6 11 6 6 6-6" /><path d="M19 21H5" />',
+  'sun-dim': '<circle cx="12" cy="12" r="4" /><path d="M12 4h.01" /><path d="M20 12h.01" /><path d="M12 20h.01" /><path d="M4 12h.01" /><path d="M17.657 6.343h.01" /><path d="M17.657 17.657h.01" /><path d="M6.343 17.657h.01" /><path d="M6.343 6.343h.01" />',
+  wind: '<path d="M12.8 19.6A2 2 0 1 0 14 16H2" /><path d="M17.5 8a2.5 2.5 0 1 1 2 4H2" /><path d="M9.8 4.4A2 2 0 1 1 11 8H2" />',
+  'wifi-low': '<path d="M12 20h.01" /><path d="M8.5 16.429a5 5 0 0 1 7 0" />',
+  mountain: '<path d="m8 3 4 8 5-5 5 15H2L8 3z" />',
+  'rotate-3d': '<path d="M16.466 7.5C15.643 4.237 13.952 2 12 2 9.239 2 7 6.477 7 12s2.239 10 5 10c.342 0 .677-.069 1-.2" /><path d="m15.194 13.707 3.814 1.86-1.86 3.814" /><path d="M19 15.57c-1.804.885-4.274 1.43-7 1.43-5.523 0-10-2.239-10-5s4.477-5 10-5c4.838 0 8.873 1.718 9.8 4" />',
+  'scan-eye': '<path d="M3 7V5a2 2 0 0 1 2-2h2" /><path d="M17 3h2a2 2 0 0 1 2 2v2" /><path d="M21 17v2a2 2 0 0 1-2 2h-2" /><path d="M7 21H5a2 2 0 0 1-2-2v-2" /><circle cx="12" cy="12" r="1" /><path d="M18.944 12.33a1 1 0 0 0 0-.66 7.5 7.5 0 0 0-13.888 0 1 1 0 0 0 0 .66 7.5 7.5 0 0 0 13.888 0" />',
+  'person-standing': '<circle cx="12" cy="5" r="1" /><path d="m9 20 3-6 3 6" /><path d="m6 8 6 2 6-2" /><path d="M12 10v4" />',
 } as const;
 
 export type IconName = keyof typeof icons;

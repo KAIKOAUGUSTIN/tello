@@ -17,6 +17,7 @@
   import { mediaHint, platform } from '../lib/platform.svelte';
   import { BEGINNER, saveSettings, settings } from '../lib/settings.svelte';
   import type { SmartVideo } from '../lib/types';
+  import { autopilot, toggleFollow } from '../ai/autopilot.svelte';
   import FlipPad from './FlipPad.svelte';
   import Icon from './Icon.svelte';
 
@@ -90,6 +91,18 @@
         </button>
       {/if}
     </div>
+    {#if settings.aiEnabled}
+      <button
+        class="btn"
+        class:on={autopilot.follow}
+        disabled={!flying && !autopilot.follow}
+        onclick={toggleFollow}
+        title="Segue a pessoa no centro da imagem (F). Qualquer toque nos controles devolve o comando."
+      >
+        <Icon name="person-standing" size={16} />
+        {autopilot.follow ? 'Parar de seguir' : 'Seguir pessoa'}
+      </button>
+    {/if}
   </section>
 
   <section>

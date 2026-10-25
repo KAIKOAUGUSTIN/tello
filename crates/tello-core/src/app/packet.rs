@@ -38,6 +38,10 @@ pub mod id {
     pub const LAND: u16 = 0x0055;
     pub const FLIGHT: u16 = 0x0056;
     pub const SET_ALT_LIMIT: u16 = 0x0058;
+    /// Começa a calibração da IMU (o usuário gira o drone pelas 6 posições).
+    pub const CALIBRATION_START: u16 = 0x005a;
+    /// Andamento da calibração: `[_, máscara das posições, _, progresso %, _]`.
+    pub const CALIBRATION_STATUS: u16 = 0x005b;
     pub const FLIP: u16 = 0x005c;
     pub const THROW_AND_GO: u16 = 0x005d;
     pub const PALM_LAND: u16 = 0x005e;
@@ -50,6 +54,9 @@ pub mod id {
     pub const LOG_DATA: u16 = 0x1051;
     pub const LOG_CONFIG: u16 = 0x1052;
     pub const BOUNCE: u16 = 0x1053;
+    /// Calibração com o drone pairando: 0 = IMU, 1 = centro de massa. Só documentada
+    /// na wiki do tellopilots, sem teste conhecido: usada como recurso experimental.
+    pub const CALIBRATE: u16 = 0x1054;
     pub const ALT_LIMIT: u16 = 0x1056;
 
     pub fn name(id: u16) -> &'static str {
@@ -68,6 +75,8 @@ pub mod id {
             LAND => "land",
             FLIGHT => "flight",
             SET_ALT_LIMIT => "set_alt_limit",
+            CALIBRATION_START => "calibration_start",
+            CALIBRATION_STATUS => "calibration_status",
             FLIP => "flip",
             THROW_AND_GO => "throw_and_go",
             PALM_LAND => "palm_land",
@@ -80,6 +89,7 @@ pub mod id {
             LOG_DATA => "log_data",
             LOG_CONFIG => "log_config",
             BOUNCE => "bounce",
+            CALIBRATE => "calibrate",
             ALT_LIMIT => "alt_limit",
             _ => "?",
         }

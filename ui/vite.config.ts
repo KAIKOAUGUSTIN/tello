@@ -18,6 +18,8 @@ export default defineConfig({
     fs: { allow: [fileURLToPath(new URL('..', import.meta.url))] },
   },
   envPrefix: ['VITE_', 'TAURI_ENV_'],
+  // O worker da IA é um módulo ES (o MediaPipe carrega o wasm com import()).
+  worker: { format: 'es' },
   build: {
     outDir: 'dist',
     emptyOutDir: true,

@@ -14,8 +14,12 @@ pub struct DateTime {
 }
 
 pub fn now_utc() -> DateTime {
-    let d = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default();
-    from_unix_millis(d.as_millis() as i64)
+    from_unix_millis(unix_millis())
+}
+
+/// Milissegundos desde 1970 (UTC).
+pub fn unix_millis() -> i64 {
+    SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_millis() as i64
 }
 
 pub fn from_unix_millis(ms: i64) -> DateTime {

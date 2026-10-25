@@ -11,6 +11,8 @@ pub enum Error {
     /// O recurso não existe no protocolo ou modelo atual.
     NotSupported(&'static str),
     NotConnected,
+    /// O link caiu e o app está refazendo a conexão.
+    Reconnecting,
     Protocol(String),
 }
 
@@ -22,6 +24,7 @@ impl fmt::Display for Error {
             Error::Refused(msg) => write!(f, "o drone recusou o comando: {msg}"),
             Error::NotSupported(what) => write!(f, "não suportado neste modo/modelo: {what}"),
             Error::NotConnected => write!(f, "não conectado"),
+            Error::Reconnecting => write!(f, "reconectando ao drone, tente de novo em instantes"),
             Error::Protocol(msg) => write!(f, "erro de protocolo: {msg}"),
         }
     }

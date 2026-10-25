@@ -106,13 +106,31 @@ impl Inner {
                 ack(if flying { 0 } else { 1 });
                 self.send_app(from, id::SMART_VIDEO_STATUS, vec![p.payload.first().copied().unwrap_or(0)]);
             }
-            id::BOUNCE | id::SET_ALT_LIMIT | id::VIDEO_RATE | id::EXPOSURE | id::VIDEO_MODE => ack(0),
+            id::VIDEO_RATE => {
+                self.state.lock().unwrap().video_rate = p.payload.first().copied();
+                ack(0);
+            }
+            id::BOUNCE | id::SET_ALT_LIMIT | id::EXPOSURE | id::VIDEO_MODE => ack(0),
+            // Comportamento do drone real desconhecido: aceita só pairando.
+            id::CALIBRATE => ack(if flying { 0 } else { 1 }),
             id::VERSION => {
                 let mut v = vec![0];
                 v.extend_from_slice(b"01.04.92.01\0");
                 self.send_app(from, id::VERSION, v);
             }
             id::ALT_LIMIT => self.send_app(from, id::ALT_LIMIT, vec![0, 10, 0]),
+            id::CALIBRATION_START => {
+                self.state.lock().unwrap().calibration = Some(Instant::now());
+                self.send_app(from, id::CALIBRATION_START, vec![0]);
+            }
+            id::CALIBRATION_STATUS => {
+                // O "usuário" leva 30 s (escalados) para passar pelas 6 posições.
+                let started = self.state.lock().unwrap().calibration;
+                let progress = started.map_or(0.0, |t| t.elapsed().as_secs_f32() / self.scaled(30.0).as_secs_f32());
+                let progress = (progress * 100.0).min(100.0) as u8;
+                let steps = (progress as u32 * 6 / 100) as u8;
+                self.send_app(from, id::CALIBRATION_STATUS, vec![0, (1u8 << steps) - 1, 0, progress, 0]);
+            }
             id::VIDEO_SPS_PPS => self.state.lock().unwrap().streaming = true,
             id::TAKE_PICTURE => {
                 ack(0);
@@ -156,6 +174,7 @@ impl Inner {
             em_sky: s.flying,
             em_ground: !s.flying,
             battery_low: s.battery < 20.0,
+            wind_state: s.wind,
             ..Default::default()
         };
         self.send_app(to, id::FLIGHT, fd.encode());
@@ -165,8 +184,8 @@ impl Inner {
             self.send_app(to, id::LOG_DATA, log);
         }
         if tick % 5 == 0 {
-            self.send_app(to, id::WIFI, vec![90, 0]);
-            self.send_app(to, id::LIGHT, vec![12]);
+            self.send_app(to, id::WIFI, vec![s.wifi.0, s.wifi.1]);
+            self.send_app(to, id::LIGHT, vec![s.light_poor as u8]);
         }
     }
 }
