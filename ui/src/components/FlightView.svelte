@@ -5,6 +5,7 @@
   import { report } from '../input/mixer.svelte';
   import { toDrone, type Axis2 } from '../input/mapping';
   import type { PlayerStats } from '../video/player';
+  import AiOverlay from './AiOverlay.svelte';
   import Hud from './Hud.svelte';
   import Icon from './Icon.svelte';
   import QuickActions from './QuickActions.svelte';
@@ -41,6 +42,9 @@
   <TopBar {onSettings} {onLog} {logOpen} onMenu={() => (menuOpen = !menuOpen)} {menuOpen} />
   <main class="stage" bind:clientHeight={stageHeight}>
     <VideoView bind:stats />
+    {#if settings.aiEnabled && settings.aiOverlay && drone.videoOn}
+      <AiOverlay {stats} />
+    {/if}
     <Hud {stats} />
     {#if platform.compact}
       <QuickActions />

@@ -12,6 +12,7 @@
   import { platform } from '../lib/platform.svelte';
   import { resetSettings, saveSettings, settings } from '../lib/settings.svelte';
   import { input } from '../input/mixer.svelte';
+  import { ai } from '../ai/engine.svelte';
   import Icon from './Icon.svelte';
 
   let { open = $bindable(false) }: { open?: boolean } = $props();
@@ -51,6 +52,32 @@
         : drone.busy
           ? 'Aguarde'
           : null,
+  );
+
+  function toggleAi(e: Event & { currentTarget: HTMLInputElement }) {
+    const on = e.currentTarget.checked;
+    if (on && !settings.aiAcknowledged) {
+      const ok = confirm(
+        'A IA é experimental: ela reconhece pessoas no vídeo, no próprio aparelho e sem internet. Ela pode errar. ' +
+          'Mantenha sempre o controle e, se algo estranho acontecer, pare o drone (pairar) ou use a emergência. Continuar?',
+      );
+      if (!ok) return void (e.currentTarget.checked = false);
+      settings.aiAcknowledged = true;
+    }
+    settings.aiEnabled = on;
+    saveSettings();
+  }
+
+  const aiStatus = $derived(
+    ai.status === 'loading'
+      ? 'Carregando o modelo…'
+      : ai.status === 'error'
+        ? `Não funcionou: ${ai.error}`
+        : ai.status === 'ready'
+          ? ai.hz > 0
+            ? `Pronta · ${ai.delegate} · ${ai.hz} análises/s · ${ai.ms} ms`
+            : `Pronta · ${ai.delegate} · aguardando o vídeo`
+          : '',
   );
 
   const bars = $derived([
@@ -170,6 +197,22 @@
         {/if}
       </section>
 
+      <section>
+        <h3 class="label"><Icon name="scan-eye" size={14} /> IA <span class="tag">Experimental</span></h3>
+        <label class="row">
+          <span>Ativar IA <small>reconhece pessoas no vídeo, no próprio aparelho e sem internet</small></span>
+          <input type="checkbox" checked={settings.aiEnabled} onchange={toggleAi} />
+        </label>
+        {#if settings.aiEnabled}
+          <span class="ai-status" class:ready={ai.status === 'ready'} class:failed={ai.status === 'error'}>{aiStatus}</span>
+          <label class="row">
+            <span>Mostrar o esqueleto sobre o vídeo</span>
+            <input type="checkbox" bind:checked={settings.aiOverlay} onchange={changed} />
+          </label>
+        {/if}
+        <span class="muted">Funciona melhor com uma pessoa por vez, a até uns 4 m, com boa luz e a cabeça visível.</span>
+      </section>
+
       {#if drone.caps?.imu_calibration}
         <section>
           <h3 class="label"><Icon name="rotate-3d" size={14} /> Calibração da IMU</h3>
@@ -255,7 +298,7 @@
       {/if}
 
       <section class="about">
-        <span class="muted">Tello Pilot {__APP_VERSION__} · GPL-3.0 · ícones Lucide (ISC)</span>
+        <span class="muted">Tello Pilot {__APP_VERSION__} · GPL-3.0 · ícones Lucide (ISC) · MediaPipe (Apache-2.0)</span>
         <button class="btn ghost" onclick={() => (resetSettings(), applySafety())}>Restaurar padrões</button>
       </section>
     </div>
@@ -428,6 +471,20 @@
     color: var(--warn);
     font-size: 10px;
     letter-spacing: 0.04em;
+  }
+
+  .ai-status {
+    color: var(--text-2);
+    font-size: 13px;
+    font-weight: 600;
+  }
+
+  .ai-status.ready {
+    color: var(--ok);
+  }
+
+  .ai-status.failed {
+    color: var(--warn);
   }
 
   .steps {

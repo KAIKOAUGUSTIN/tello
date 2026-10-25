@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
 
+  import { analyzeFrame } from '../ai/engine.svelte';
   import { setSnapshotProvider } from '../lib/commands.svelte';
   import { drone, initDrone, startVideo } from '../lib/drone.svelte';
   import { platform } from '../lib/platform.svelte';
@@ -33,6 +34,7 @@
 
   onMount(() => {
     player = new H264Player(canvas, (s) => (stats = s));
+    player.onFrame = analyzeFrame;
     let off = () => {};
     void initDrone().then((b) => {
       off = b.onVideo((p) => player?.push(p));

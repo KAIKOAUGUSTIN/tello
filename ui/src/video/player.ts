@@ -29,6 +29,8 @@ export class H264Player {
   private ctx: CanvasRenderingContext2D | null;
   private frameTimes: number[] = [];
   private lastStats = 0;
+  /** Recebe cada quadro decodificado antes de ele ser liberado (ex.: análise da IA). */
+  onFrame: ((frame: VideoFrame) => void) | null = null;
   readonly stats: PlayerStats = {
     fps: 0,
     width: 0,
@@ -149,6 +151,7 @@ export class H264Player {
       this.canvas.height = h;
     }
     this.ctx?.drawImage(frame, 0, 0, w, h);
+    this.onFrame?.(frame);
     frame.close();
     this.stats.width = w;
     this.stats.height = h;

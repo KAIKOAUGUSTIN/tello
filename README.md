@@ -120,6 +120,15 @@ Quem segura o drone no ar é o controlador de voo dele, com a IMU, a câmera de 
 
 Os itens marcados com "modo App" dependem do protocolo do app oficial: conecte em **Recursos do app**. No modo **SDK oficial** o drone não informa luz, vento nem perda de vídeo, e não aceita as calibrações.
 
+### IA (experimental)
+
+Em **Configurações → IA**, o app reconhece pessoas no vídeo com o detector de pose do [MediaPipe](https://ai.google.dev/edge/mediapipe/solutions/vision/pose_landmarker), que marca 33 pontos do corpo. Vem desligada.
+
+- **Tudo no aparelho.** O motor e o modelo vêm dentro do app, e a análise roda num worker, sem travar a interface. Nada precisa de internet (no Wi-Fi do drone ela nem existe). O MediaPipe tenta enviar métricas de uso ao Google; o app bloqueia esse envio e qualquer outro acesso à rede a partir da IA.
+- **Desempenho.** Até 15 análises por segundo, numa cópia do quadro reduzida a 480×360. O app tenta a GPU e passa para a CPU se ela falhar ou for lenta (sem placa de vídeo, a GPU é emulada e fica umas dez vezes mais lenta). O status aparece nas configurações, por exemplo "Pronta · CPU · 11 análises/s · 54 ms".
+- **Limites do modelo.** Funciona melhor com uma pessoa por vez, a até uns 4 m, com boa luz e a cabeça visível. Por causa do atraso do vídeo (200 a 300 ms), só serve para movimentos lentos.
+- **Tamanho.** O motor e o modelo somam uns 19 MB no app (9 MB comprimidos). O APK universal do Android leva uma cópia do app para cada tipo de processador, então lá eles pesam três vezes.
+
 ### Onde ficam os arquivos
 
 | Tipo | Windows, macOS e Linux | Android | iOS |
@@ -238,7 +247,7 @@ scripts/release     versão automática e changelog
 
 ### Dependências
 
-O que é o coração do projeto é feito à mão: os protocolos do Tello, CRCs, montagem do vídeo, parser de SPS e o gravador MP4. O que é infraestrutura grande vem pronto: decodificação de vídeo (WebCodecs, do próprio sistema), controle (Gamepad API), janela e instalador (Tauri), interface (Svelte) e serialização (serde).
+O que é o coração do projeto é feito à mão: os protocolos do Tello, CRCs, montagem do vídeo, parser de SPS e o gravador MP4. O que é infraestrutura grande vem pronto: decodificação de vídeo (WebCodecs, do próprio sistema), controle (Gamepad API), janela e instalador (Tauri), interface (Svelte), serialização (serde) e detecção de pose para a IA (MediaPipe).
 
 ### Protocolos
 
@@ -252,4 +261,4 @@ O que é o coração do projeto é feito à mão: os protocolos do Tello, CRCs, 
 
 ## Licença
 
-GPL-3.0. Ícones do [Lucide](https://lucide.dev) (licença ISC).
+GPL-3.0. Ícones do [Lucide](https://lucide.dev) (licença ISC). Motor e modelo de pose do [MediaPipe](https://github.com/google-ai-edge/mediapipe) (licença Apache-2.0, ver `ui/src/ai/LICENSE-mediapipe.txt`).

@@ -21,6 +21,12 @@ export interface Settings {
   videoLevel: number;
   showSticks: boolean;
   rumble: boolean;
+  /** IA experimental (detector de pose no próprio aparelho). */
+  aiEnabled: boolean;
+  /** Já leu o aviso da IA experimental. */
+  aiAcknowledged: boolean;
+  /** Desenha o esqueleto das pessoas sobre o vídeo. */
+  aiOverlay: boolean;
 }
 
 const DEFAULTS: Settings = {
@@ -39,6 +45,9 @@ const DEFAULTS: Settings = {
   videoLevel: 4,
   showSticks: true,
   rumble: true,
+  aiEnabled: false,
+  aiAcknowledged: false,
+  aiOverlay: true,
 };
 
 const KEY = 'tello-pilot.settings.v1';
