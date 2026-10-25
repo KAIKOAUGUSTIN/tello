@@ -6,6 +6,7 @@ import { iou, type Box, type Detection } from './boxes.ts';
 import type { HandSeen } from './hand.ts';
 import type { FromWorker, HandCrop, ToWorker, TrackCommand } from './messages.ts';
 import { mockHand, mockScene, type MockObject } from './mock.ts';
+import type { Motion } from './motion.ts';
 import type { Seen } from './tracker.ts';
 
 export type AiStatus = 'off' | 'loading' | 'ready' | 'error';
@@ -20,6 +21,8 @@ export const ai = $state({
   ms: 0,
   /** Coisas que dá para seguir, da última vez que o detector rodou. */
   detections: [] as Detection[],
+  /** `ts` do quadro dessas detecções. */
+  detectionsTs: 0,
   /** Largura dividida pela altura do quadro analisado. */
   aspect: 4 / 3,
   /** `performance.now()` do último resultado. */
@@ -39,6 +42,8 @@ export interface AiResult {
   /** `null` quando o detector não rodou neste quadro. */
   detections: Detection[] | null;
   track: Seen | null;
+  /** Giro da câmera desde o quadro rastreado anterior (`null`: sem medida). */
+  motion: Motion | null;
   /** `null` quando a mão não foi procurada neste quadro. */
   hand: HandSeen | null;
 }
@@ -70,7 +75,7 @@ let lastSent = 0;
 let done: number[] = [];
 let sweep: number | undefined;
 let tracking = false;
-let pendingInit: Box | null = null;
+let pendingInit: TrackCommand['init'] = null;
 let lastDetect = 0;
 let detectMs = 0;
 let lastPsr = Infinity;
@@ -91,10 +96,13 @@ export function onResult(cb: (r: AiResult) => void): () => void {
   return () => listeners.delete(cb);
 }
 
-/** Começa (ou recomeça) o rastreador visual nesta caixa, a partir do próximo quadro. */
-export function startTracking(box: Box): void {
+/**
+ * Começa (ou recomeça) o rastreador visual nesta caixa, a partir do próximo
+ * quadro. `ts`: o quadro em que ela foi vista (sem ele, o mais recente).
+ */
+export function startTracking(box: Box, ts = performance.now()): void {
   tracking = true;
-  pendingInit = box;
+  pendingInit = { box, ts };
   lastDetect = performance.now();
   lastPsr = Infinity;
 }
@@ -173,6 +181,7 @@ export function stopAi(): void {
     hz: 0,
     ms: 0,
     detections: [],
+    detectionsTs: 0,
     at: 0,
     error: null,
     hands: 'off',
@@ -267,7 +276,7 @@ function onMessage(msg: FromWorker): void {
     if (!msg.ok) console.warn('IA: reconhecedor de gestos:', msg.message);
   } else {
     busy = false;
-    finish({ ts: msg.ts, detections: msg.detections, track: msg.track, hand: msg.hand }, msg.ms);
+    finish({ ts: msg.ts, detections: msg.detections, track: msg.track, motion: msg.motion, hand: msg.hand }, msg.ms);
   }
 }
 
@@ -281,8 +290,9 @@ function mockFrame(now: number, detect: boolean, track: TrackCommand | null, reg
   if (track?.init) {
     // Pega o objeto da cena sob a caixa marcada; sem nenhum, rastreia o "fundo" parado.
     let best: MockObject | null = null;
-    for (const o of scene) if (iou(o.box, track.init) > (best ? iou(best.box, track.init) : 0.15)) best = o;
-    mockTarget = { id: best?.id ?? null, box: best?.box ?? track.init };
+    const init = track.init.box;
+    for (const o of scene) if (iou(o.box, init) > (best ? iou(best.box, init) : 0.15)) best = o;
+    mockTarget = { id: best?.id ?? null, box: best?.box ?? init };
     seen = { box: mockTarget.box, psr: 99 };
   } else if (track && mockTarget) {
     const o = mockTarget.id ? scene.find((s) => s.id === mockTarget!.id) : null;
@@ -294,7 +304,7 @@ function mockFrame(now: number, detect: boolean, track: TrackCommand | null, reg
     : null;
   const person = scene.find((o) => o.category === 'person');
   const hand = region ? mockHand(now - handsSince, person && iou(person.box, region) > 0 ? person.box : null) : null;
-  finish({ ts: now, detections, track: seen, hand }, 3 + Math.random() * 2);
+  finish({ ts: now, detections, track: seen, motion: null, hand }, 3 + Math.random() * 2);
 }
 
 function finish(result: AiResult, ms: number): void {
@@ -303,6 +313,7 @@ function finish(result: AiResult, ms: number): void {
   while (done.length && now - done[0] > 1000) done.shift();
   if (result.detections) {
     ai.detections = result.detections;
+    ai.detectionsTs = result.ts;
     detectMs = detectMs ? detectMs * 0.7 + ms * 0.3 : ms;
   }
   if (result.track) lastPsr = result.track.psr;

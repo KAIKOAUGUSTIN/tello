@@ -1,9 +1,11 @@
 // Acompanha o alvo escolhido entre as análises. Junta o rastreador visual
 // (todo quadro) com as detecções (de tempos em tempos, para corrigir o tamanho
 // e a deriva) e suaviza com um filtro de Kalman, que também estima a
-// velocidade, usada para compensar o atraso do vídeo. Módulo puro.
+// velocidade, usada para compensar o atraso do vídeo. Com o alvo perdido e a
+// câmera girando, a previsão anda junto com a imagem. Módulo puro.
 
 import { iou, labelOf, type Box, type Detection } from './boxes.ts';
+import { moveBox, moveWith, type Motion } from './motion.ts';
 import { MOSSE } from './mosse.ts';
 
 export const TRACK = {
@@ -59,9 +61,10 @@ class Kalman {
     this.p00 = TRACK.r;
   }
 
-  predict(dt: number): void {
+  /** `to`: onde a posição foi parar, quando se sabe por outro meio (o giro da câmera). */
+  predict(dt: number, to = this.p + this.v * dt): void {
     const q = TRACK.q;
-    this.p += this.v * dt;
+    this.p = to;
     const p00 = this.p00 + dt * (2 * this.p01 + dt * this.p11) + (q * dt ** 3) / 3;
     const p01 = this.p01 + dt * this.p11 + (q * dt ** 2) / 2;
     this.p11 += q * dt;
@@ -93,7 +96,7 @@ export class Tracker {
   /** Categoria do COCO, ou `null` para algo marcado à mão que o detector não conhece. */
   readonly category: string | null;
   readonly label: string;
-  /** Última caixa em que o alvo foi visto. */
+  /** Última caixa em que o alvo foi visto (perdido, levada pelo giro da câmera). */
   box: Box;
   /** Caixa para recomeçar o rastreador visual (depois de corrigir ou reencontrar). */
   reinit: Box | null = null;
@@ -121,15 +124,21 @@ export class Tracker {
 
   /**
    * Junta o que o rastreador visual achou com as detecções deste quadro
-   * (`null` quando o detector não rodou). Devolve a caixa medida, ou `null` se
-   * o alvo não foi visto.
+   * (`null` quando o detector não rodou) e o giro da câmera desde o anterior.
+   * Devolve a caixa medida, ou `null` se o alvo não foi visto.
    */
-  update(seen: Seen | null, detections: Detection[] | null, now: number): Box | null {
+  update(seen: Seen | null, detections: Detection[] | null, now: number, motion: Motion | null = null): Box | null {
     const dt = Math.min(0.5, Math.max(0, (now - this.t) / 1000));
     this.t = now;
-    for (const k of [this.x, this.y, this.s]) k.predict(dt);
-
     const tracked = seen && seen.psr >= MOSSE.lostPsr ? seen.box : null;
+    // Sem o alvo, mas com o giro medido, ele está onde a imagem o levou (a
+    // velocidade estimada já trazia o giro de antes: não conta duas vezes).
+    const turned = !tracked && motion ? moveWith(motion, this.x.p, this.y.p) : null;
+    this.x.predict(dt, turned?.x);
+    this.y.predict(dt, turned?.y);
+    this.s.predict(dt);
+    if (turned) this.box = moveBox(this.box, motion!);
+
     let measured = tracked;
     this.reinit = null;
     if (detections && this.category) {

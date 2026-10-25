@@ -36,7 +36,7 @@ export const autopilot = $state({
   label: null as string | null,
   /** Categoria do COCO do alvo, ou `null` para algo marcado à mão. */
   category: null as string | null,
-  /** Caixa do alvo, como vista por último. */
+  /** Caixa do alvo, como vista por último (perdido, levada pelo giro da câmera). */
   box: null as Box | null,
   /** O alvo não aparece na última análise. */
   lost: false,
@@ -79,24 +79,27 @@ export function toggleFollow(): void {
 export function selectAt(x: number, y: number): void {
   const d = pickAt(ai.detections, x, y);
   if (!d) return void toast('info', 'Nada aqui', 'Toque numa caixa cinza ou arraste em volta do que quer seguir.');
-  lock(d, d.category);
+  lock(d, d.category, ai.detectionsTs);
 }
 
 /** Área arrastada durante a escolha: casa com uma detecção ou vira um objeto genérico. */
 export function selectRect(r: Box): void {
   if (r.w < MIN_DRAG || r.h < MIN_DRAG) return selectAt(r.x + r.w / 2, r.y + r.h / 2);
   const d = matchRect(ai.detections, r);
-  lock(d ?? r, d?.category ?? null);
+  // A área foi marcada sobre o vídeo de agora; a detecção é de um quadro anterior.
+  if (d) lock(d, d.category, ai.detectionsTs);
+  else lock(r, null, performance.now());
 }
 
-function lock(box: Box, category: string | null): void {
+/** `seenAt`: `ts` do quadro em que a caixa foi vista. */
+function lock(box: Box, category: string | null, seenAt: number): void {
   const now = performance.now();
   tracker = new Tracker(box, category, now, ai.aspect);
   controller = null;
   out = NEUTRAL;
   outAt = lastStep = now;
   slowSince = null;
-  startTracking(box);
+  startTracking(box, seenAt);
   Object.assign(autopilot, {
     selecting: false,
     follow: true,
@@ -162,12 +165,10 @@ export function stopAutopilot(reason?: string, kind: ToastKind = 'warn'): void {
 function step(r: AiResult): void {
   if (!tracker) return;
   const now = performance.now();
-  const seen = tracker.update(r.track, r.detections, r.ts);
-  if (tracker.reinit) startTracking(tracker.reinit);
-  if (seen) {
-    autopilot.box = seen;
-    autopilot.distanceM = distanceM(seen, tracker.category);
-  }
+  const seen = tracker.update(r.track, r.detections, r.ts, r.motion);
+  if (tracker.reinit) startTracking(tracker.reinit, r.ts);
+  autopilot.box = tracker.box;
+  if (seen) autopilot.distanceM = distanceM(seen, tracker.category);
   autopilot.lost = !seen;
   if (tracker.lostFor(r.ts) > GIVE_UP_MS) return stopAutopilot('O alvo sumiu da imagem');
   if (!isFlying()) return;

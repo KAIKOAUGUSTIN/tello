@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
 import { FOLLOW, FollowController, slew } from './follow.ts';
+import { moveWith } from './motion.ts';
 import { sizeOf, Tracker } from './tracker.ts';
 
 const box = (cx, cy, w, h) => ({ x: cx - w / 2, y: cy - h / 2, w, h });
@@ -49,6 +50,28 @@ test('rastreador: perdido conta o tempo e reencontra só perto e do mesmo tamanh
   assert.deepEqual(tracker.update(null, [back], 1400), back);
   assert.deepEqual(tracker.reinit, back);
   assert.equal(tracker.lostFor(1400), 0);
+});
+
+test('rastreador: perdido com a câmera girando, a previsão anda com a imagem e reencontra lá', () => {
+  // O drone gira para a direita: a imagem anda para a esquerda, e o alvo junto.
+  const turn = { pan: -0.03, tilt: 0 };
+  const tracker = new Tracker(box(0.8, 0.5, 0.1, 0.3), 'person', 0);
+  let cx = 0.8;
+  for (let t = 50; t <= 300; t += 50) {
+    cx = moveWith(turn, cx, 0.5).x;
+    tracker.update({ box: box(cx, 0.5, 0.1, 0.3), psr: 20 }, null, t, turn);
+  }
+  // Perde (borrão) e o giro continua: a caixa e a previsão andam com a imagem,
+  // sem somar de novo a velocidade que já vinha do giro.
+  for (let t = 350; t <= 700; t += 50) {
+    cx = moveWith(turn, cx, 0.5).x;
+    assert.equal(tracker.update({ box: box(0.8, 0.5, 0.1, 0.3), psr: 3 }, null, t, turn), null);
+  }
+  assert.ok(Math.abs(tracker.box.x + tracker.box.w / 2 - cx) < 0.005, `caixa em ${tracker.box.x.toFixed(3)}, alvo em ${cx.toFixed(3)}`);
+  assert.ok(Math.abs(tracker.estimate().cx - cx) < 0.01, `previsão ${tracker.estimate().cx.toFixed(3)} vs ${cx.toFixed(3)}`);
+  // A detecção acha o alvo longe de onde ele foi visto, mas onde o giro o levou.
+  const back = det(cx, 0.5, 0.1, 0.3);
+  assert.deepEqual(tracker.update(null, [back], 750, null), back);
 });
 
 test('rastreador: objeto genérico depende só do visual e usa a área como tamanho', () => {

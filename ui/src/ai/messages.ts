@@ -2,13 +2,17 @@
 
 import type { Box, Detection } from './boxes.ts';
 import type { HandSeen } from './hand.ts';
+import type { Motion } from './motion.ts';
 import type { Seen } from './tracker.ts';
 
 export type Delegate = 'GPU' | 'CPU';
 
-/** Rastreador visual: `init` recomeça nessa caixa; `null` só continua. */
+/**
+ * Rastreador visual: `init` recomeça na caixa vista no quadro `ts` (o worker a
+ * traz até o quadro atual com o giro da câmera); `null` só continua.
+ */
 export interface TrackCommand {
-  init: Box | null;
+  init: { box: Box; ts: number } | null;
 }
 
 /** Recorte do quadro em resolução cheia onde procurar a mão. */
@@ -45,6 +49,8 @@ export type FromWorker =
       /** `null` quando o detector não rodou neste quadro. */
       detections: Detection[] | null;
       track: Seen | null;
+      /** Giro da câmera desde o quadro rastreado anterior (`null`: sem rastrear ou sem medida). */
+      motion: Motion | null;
       /** `null` quando a mão não foi procurada neste quadro. */
       hand: HandSeen | null;
       ms: number;
