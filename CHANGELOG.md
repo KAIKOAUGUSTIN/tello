@@ -2,6 +2,12 @@
 
 Todas as mudanças do Tello Pilot. Gerado automaticamente a cada release.
 
+## [0.3.1](https://github.com/KAIKOAUGUSTIN/tello/compare/v0.3.0...v0.3.1) (2026-10-25)
+
+### Correções
+
+- Seguir não perde o alvo quando o drone gira rápido ([9948efe](https://github.com/KAIKOAUGUSTIN/tello/commit/9948efe4bf91e5a80f16fb4dd7be5c4bbd944672))
+
 ## [0.3.0](https://github.com/KAIKOAUGUSTIN/tello/compare/v0.2.1...v0.3.0) (2026-10-25)
 
 ### Novidades
