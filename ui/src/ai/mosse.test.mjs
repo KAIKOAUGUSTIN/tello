@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
+import { CameraMotion, moveWith } from './motion.ts';
 import { MOSSE, Mosse } from './mosse.ts';
 
 const W = 320;
@@ -58,6 +59,83 @@ test('quando o alvo some, a confiança cai e a caixa fica parada', () => {
   // E reencontra quando ele volta.
   const back = tracker.update(scene(target));
   assert.ok(back.psr >= MOSSE.lostPsr, `psr na volta ${back.psr.toFixed(1)}`);
+});
+
+// Câmera pinhole (70° na horizontal) girada `yaw` rad para a direita, vendo
+// um fundo e um alvo parados no mundo (ângulo `at`, largura `w` rad).
+const TAN_H = Math.tan((35 * Math.PI) / 180);
+const RAD_PX = 300;
+const angleOf = (x) => Math.atan(((x + 0.5) / W - 0.5) * 2 * TAN_H);
+const pixelOf = (a) => (0.5 + Math.tan(a) / (2 * TAN_H)) * W - 0.5;
+
+function turned(yaw, target, hidden = false) {
+  const data = new Float32Array(W * H);
+  for (let x = 0; x < W; x++) {
+    const a = angleOf(x) + yaw;
+    const X = a * RAD_PX;
+    const u = (a - target.at) / target.w;
+    for (let y = 0; y < H; y++) {
+      let v = 110 + 40 * Math.sin(X * 0.045) * Math.cos(y * 0.06) + 25 * Math.sin((X + y) * 0.13) + 20 * Math.sin(X * 0.0113 + y * 0.021);
+      const t = (y - target.cy) / target.h;
+      if (!hidden && Math.abs(u) <= 0.5 && Math.abs(t) <= 0.5) {
+        v = 60 + 120 * ((Math.floor((u + 0.5) * 4) + Math.floor((t + 0.5) * 6)) % 2) + 50 * Math.sin(u * 9);
+      }
+      data[y * W + x] = Math.max(0, Math.min(255, v));
+    }
+  }
+  return { data, width: W, height: H };
+}
+
+/**
+ * O drone gira `stepDeg` graus para a direita por quadro, com o alvo começando
+ * perto da borda direita. Devolve o pior erro e o primeiro quadro perdido.
+ */
+function spin(stepDeg, { measure, hiddenFrames = [] }) {
+  const target = { at: angleOf(275), w: 0.08, cy: 120, h: 48 };
+  const box = (yaw) => {
+    const l = pixelOf(target.at - target.w / 2 - yaw);
+    const r = pixelOf(target.at + target.w / 2 - yaw);
+    return { cx: (l + r) / 2, cy: target.cy, w: r - l, h: target.h };
+  };
+  let yaw = 0;
+  const first = turned(yaw, target);
+  const tracker = new Mosse(first, box(yaw));
+  const camera = new CameraMotion();
+  camera.update(first, 0);
+  let worst = 0;
+  let lost = -1;
+  for (let k = 0; k < 9; k++) {
+    yaw += (stepDeg * Math.PI) / 180;
+    const hidden = hiddenFrames.includes(k);
+    const img = turned(yaw, target, hidden);
+    const m = camera.update(img, (k + 1) * 100);
+    let shift;
+    if (measure && m) {
+      const to = moveWith(m, tracker.box.cx / W, tracker.box.cy / H);
+      shift = { dx: to.x * W - tracker.box.cx, dy: to.y * H - tracker.box.cy };
+    }
+    const r = tracker.update(img, shift);
+    if (hidden) continue;
+    const want = box(yaw);
+    const err = Math.hypot(r.box.cx - want.cx, r.box.cy - want.cy);
+    worst = Math.max(worst, err);
+    if (lost < 0 && (r.psr < MOSSE.lostPsr || err > want.w / 2)) lost = k;
+  }
+  return { worst, lost };
+}
+
+test('câmera girando rápido: sem medir o giro perde; medindo, segue', () => {
+  // 5,5° por quadro: 55°/s analisando 10 quadros por segundo.
+  assert.ok(spin(5.5, { measure: false }).lost >= 0, 'sem a medida o alvo escapa da busca');
+  const r = spin(5.5, { measure: true });
+  assert.equal(r.lost, -1, 'com a medida não perde');
+  assert.ok(r.worst < 3, `erro máximo ${r.worst.toFixed(2)} px`);
+});
+
+test('perdido no meio do giro, a caixa anda com a imagem e reencontra o alvo', () => {
+  const r = spin(4.5, { measure: true, hiddenFrames: [2, 3, 4] });
+  assert.equal(r.lost, -1, 'reencontrou depois de três quadros escondido');
+  assert.ok(r.worst < 4, `erro máximo ${r.worst.toFixed(2)} px`);
 });
 
 test('é rápido o bastante para todo quadro', () => {

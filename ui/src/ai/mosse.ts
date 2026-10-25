@@ -32,7 +32,8 @@ export const MOSSE = {
   lostPsr: 7,
 };
 
-const N = 64;
+/** Lado da grade da FFT. */
+export const N = 64;
 const MIN_SIDE = 8;
 const SIDELOBE = 5;
 
@@ -80,7 +81,7 @@ function fft1d(re: Float64Array, im: Float64Array, off: number, stride: number, 
   }
 }
 
-function fft2d(re: Float64Array, im: Float64Array, inverse = false): void {
+export function fft2d(re: Float64Array, im: Float64Array, inverse = false): void {
   for (let r = 0; r < N; r++) fft1d(re, im, r * N, 1, inverse);
   for (let c = 0; c < N; c++) fft1d(re, im, c, N, inverse);
   if (inverse) {
@@ -93,7 +94,7 @@ function fft2d(re: Float64Array, im: Float64Array, inverse = false): void {
 }
 
 // Janela de Hann (bordas suaves) e o pico gaussiano desejado, no domínio da frequência.
-const HANN = new Float64Array(N * N);
+export const HANN = new Float64Array(N * N);
 const G_RE = new Float64Array(N * N);
 const G_IM = new Float64Array(N * N);
 {
@@ -153,6 +154,14 @@ function patch(img: Gray, box: PixelBox, scale: number, re: Float64Array, im: Fl
   }
 }
 
+/** Resultado de uma busca: altura do pico, onde ele ficou (na grade) e a nitidez. */
+interface Found {
+  peak: number;
+  dx: number;
+  dy: number;
+  psr: number;
+}
+
 /** Gerador pseudoaleatório fixo: o treino inicial sai sempre igual. */
 function lcg(seed: number): () => number {
   let s = seed >>> 0;
@@ -185,30 +194,50 @@ export class Mosse {
     this.psr = Infinity;
   }
 
-  /** Procura o alvo na imagem nova e devolve a caixa e a confiança. */
-  update(img: Gray): { box: PixelBox; psr: number } {
-    let best = { score: -Infinity, scale: 1, dx: 0, dy: 0, psr: 0 };
+  /**
+   * Procura o alvo na imagem nova e devolve a caixa e a confiança. `shift`
+   * (pixels) é quanto a imagem andou com o giro da câmera desde o último
+   * quadro: a busca começa ali, e também no lugar antigo, caso a medida erre.
+   */
+  update(img: Gray, shift: { dx: number; dy: number } = { dx: 0, dy: 0 }): { box: PixelBox; psr: number } {
+    const moved: PixelBox = {
+      ...this.box,
+      cx: Math.min(img.width, Math.max(0, this.box.cx + shift.dx)),
+      cy: Math.min(img.height, Math.max(0, this.box.cy + shift.dy)),
+    };
+    const starts = Math.hypot(shift.dx, shift.dy) >= 1 ? [moved, this.box] : [moved];
+    let from = moved;
+    let base: Found | null = null;
+    for (const start of starts) {
+      const r = this.search(img, start, 1);
+      if (!base || r.psr > base.psr) [from, base] = [start, r];
+    }
+    let best = { score: base!.peak, scale: 1, dx: base!.dx, dy: base!.dy, psr: base!.psr };
     for (const scale of MOSSE.scales) {
-      const r = this.search(img, scale);
-      const score = r.peak * (scale === 1 ? 1 : MOSSE.scalePenalty);
+      if (scale === 1) continue;
+      const r = this.search(img, from, scale);
+      const score = r.peak * MOSSE.scalePenalty;
       if (score > best.score) best = { score, scale, dx: r.dx, dy: r.dy, psr: r.psr };
     }
     const ww = this.box.w * MOSSE.padding * best.scale;
     const wh = this.box.h * MOSSE.padding * best.scale;
     const next: PixelBox = {
-      cx: Math.min(img.width, Math.max(0, this.box.cx + (best.dx * ww) / N)),
-      cy: Math.min(img.height, Math.max(0, this.box.cy + (best.dy * wh) / N)),
+      cx: Math.min(img.width, Math.max(0, from.cx + (best.dx * ww) / N)),
+      cy: Math.min(img.height, Math.max(0, from.cy + (best.dy * wh) / N)),
       w: Math.min(img.width, Math.max(MIN_SIDE, this.box.w * best.scale)),
       h: Math.min(img.height, Math.max(MIN_SIDE, this.box.h * best.scale)),
     };
     this.psr = best.psr;
     if (best.psr >= MOSSE.lostPsr) {
-      // Achou: anda até lá e aprende a aparência nova. Perdido: fica onde
-      // estava e não aprende (para não decorar o que está na frente).
+      // Achou: anda até lá e aprende a aparência nova.
       this.box = next;
       patch(img, this.box, 1, this.re, this.im);
       fft2d(this.re, this.im);
       this.accumulate(MOSSE.learningRate);
+    } else {
+      // Perdido: não aprende (para não decorar o que está na frente), mas anda
+      // com a imagem, para a busca seguinte começar onde o alvo deve estar.
+      this.box = moved;
     }
     return { box: { ...this.box }, psr: best.psr };
   }
@@ -227,9 +256,9 @@ export class Mosse {
     }
   }
 
-  private search(img: Gray, scale: number): { peak: number; dx: number; dy: number; psr: number } {
+  private search(img: Gray, center: PixelBox, scale: number): Found {
     const { re, im, resp } = this;
-    patch(img, this.box, scale, re, im);
+    patch(img, center, scale, re, im);
     fft2d(re, im);
     // Resposta = F · A / B, de volta ao espaço da imagem.
     const lambda = 1e-2;

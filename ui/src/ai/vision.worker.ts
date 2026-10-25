@@ -11,6 +11,7 @@ import { toGesture, type HandSeen } from './hand.ts';
 import type { Delegate, FromWorker, HandCrop, ToWorker, TrackCommand } from './messages.ts';
 import modelAssetPath from './models/efficientdet_lite0.tflite?url';
 import handModelPath from './models/gesture_recognizer.task?url';
+import { CameraMotion, moveBox, moveWith, type Motion } from './motion.ts';
 import { Mosse, type Gray, type PixelBox } from './mosse.ts';
 import type { Seen } from './tracker.ts';
 
@@ -43,6 +44,13 @@ let delegate: Delegate = 'GPU';
 /** Durações das primeiras detecções na GPU (a primeira, mais lenta, fica de fora). */
 let gpuTimes: number[] = [];
 let tracker: Mosse | null = null;
+const camera = new CameraMotion();
+/**
+ * Giro acumulado da câmera em cada quadro rastreado (os últimos segundos), para
+ * trazer uma caixa vista num quadro anterior até o atual.
+ */
+let turned: { ts: number; pan: number; tilt: number }[] = [];
+const TURNED_MS = 3000;
 let canvas: OffscreenCanvas | null = null;
 let gray: Gray | null = null;
 
@@ -203,19 +211,40 @@ function hand(crop: HandCrop | null, ts: number): HandSeen | null {
   }
 }
 
-function track(cmd: TrackCommand | null, bitmap: ImageBitmap): Seen | null {
+/** Rastreador visual neste quadro, e quanto a câmera girou desde o anterior. */
+function track(cmd: TrackCommand | null, bitmap: ImageBitmap, ts: number): { seen: Seen | null; motion: Motion | null } {
   if (!cmd) {
     tracker = null;
-    return null;
+    camera.reset();
+    turned = [];
+    return { seen: null, motion: null };
   }
-  if (!cmd.init && !tracker) return null;
+  if (!cmd.init && !tracker) return { seen: null, motion: null };
   const img = toGray(bitmap);
+  const motion = camera.update(img, ts);
+  const last = turned[turned.length - 1];
+  turned.push({ ts, pan: (last?.pan ?? 0) + (motion?.pan ?? 0), tilt: (last?.tilt ?? 0) + (motion?.tilt ?? 0) });
+  while (ts - turned[0].ts > TURNED_MS) turned.shift();
   if (cmd.init) {
-    tracker = new Mosse(img, toPixels(cmd.init, img));
-    return { box: cmd.init, psr: 99 };
+    // A caixa vem de um quadro anterior (o da detecção): com o drone girando,
+    // o alvo já andou na imagem desde lá.
+    const box = moveBox(cmd.init.box, turnedSince(cmd.init.ts));
+    tracker = new Mosse(img, toPixels(box, img));
+    return { seen: { box, psr: 99 }, motion };
   }
-  const r = tracker!.update(img);
-  return { box: toBox(r.box, img), psr: r.psr };
+  const t = tracker!;
+  const to = motion ? moveWith(motion, t.box.cx / img.width, t.box.cy / img.height) : null;
+  const shift = to ? { dx: to.x * img.width - t.box.cx, dy: to.y * img.height - t.box.cy } : undefined;
+  const r = t.update(img, shift);
+  return { seen: { box: toBox(r.box, img), psr: r.psr }, motion };
+}
+
+/** Quanto a câmera girou do quadro `ts` até o atual. */
+function turnedSince(ts: number): Motion {
+  const now = turned[turned.length - 1];
+  let from = turned[0];
+  for (const e of turned) if (e.ts <= ts) from = e;
+  return { pan: now.pan - from.pan, tilt: now.tilt - from.tilt };
 }
 
 function median(values: number[]): number {
@@ -260,10 +289,11 @@ scope.onmessage = async ({ data: msg }) => {
   const seenHand = hand(msg.hand, msg.ts);
   let detections: Detection[] | null = null;
   let seen: Seen | null = null;
+  let motion: Motion | null = null;
   let detectMs = 0;
   try {
     // O rastreador vem primeiro: é ele que mantém a resposta rápida.
-    seen = track(msg.track, msg.bitmap);
+    ({ seen, motion } = track(msg.track, msg.bitmap, msg.ts));
     if (msg.detect && detector) {
       const t0 = performance.now();
       detections = detect(msg.bitmap, msg.ts);
@@ -293,5 +323,13 @@ scope.onmessage = async ({ data: msg }) => {
       }
     }
   }
-  scope.postMessage({ type: 'result', ts: msg.ts, detections, track: seen, hand: seenHand, ms: performance.now() - started });
+  scope.postMessage({
+    type: 'result',
+    ts: msg.ts,
+    detections,
+    track: seen,
+    motion,
+    hand: seenHand,
+    ms: performance.now() - started,
+  });
 };
