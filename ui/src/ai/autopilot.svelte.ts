@@ -9,10 +9,11 @@ import { platform } from '../lib/platform.svelte';
 import { settings } from '../lib/settings.svelte';
 import { toast, type ToastKind } from '../lib/toasts.svelte';
 import { NEUTRAL, type Sticks } from '../lib/types';
-import { input, onManual, report } from '../input/mixer.svelte';
+import { input, onManual } from '../input/mixer.svelte';
 import { distanceM, matchRect, pickAt, type Box } from './boxes.ts';
 import { ai, onResult, startTracking, stopTracking, type AiResult } from './engine.svelte';
 import { FOLLOW, FollowController, slew } from './follow.ts';
+import { reportAi } from './output';
 import { Tracker } from './tracker.ts';
 
 /** Abaixo disso o atraso fica grande demais para seguir alguma coisa. */
@@ -33,6 +34,8 @@ export const autopilot = $state({
   /** O drone está de fato se movendo atrás do alvo. */
   active: false,
   label: null as string | null,
+  /** Categoria do COCO do alvo, ou `null` para algo marcado à mão. */
+  category: null as string | null,
   /** Caixa do alvo, como vista por último. */
   box: null as Box | null,
   /** O alvo não aparece na última análise. */
@@ -54,8 +57,8 @@ function note(text: string): void {
     .catch(() => {});
 }
 
-/** Motivo para não poder escolher um alvo agora, ou `null`. */
-function blocker(): string | null {
+/** Motivo para a IA não poder comandar agora (seguir ou gestos), ou `null`. */
+export function aiBlocker(): string | null {
   if (!settings.aiEnabled) return 'Ative a IA em Configurações';
   if (ai.status !== 'ready') return ai.status === 'loading' ? 'A IA ainda está carregando' : 'A IA não está funcionando';
   if (drone.conn !== 'connected') return 'Conecte ao drone';
@@ -67,7 +70,7 @@ function blocker(): string | null {
 export function toggleFollow(): void {
   if (autopilot.follow) return stopAutopilot(undefined, 'info');
   if (autopilot.selecting) return void (autopilot.selecting = false);
-  const why = blocker();
+  const why = aiBlocker();
   if (why) return void toast('warn', 'Não deu para seguir', why);
   autopilot.selecting = true;
 }
@@ -99,6 +102,7 @@ function lock(box: Box, category: string | null): void {
     follow: true,
     active: false,
     label: tracker.label,
+    category,
     box,
     lost: false,
     distanceM: distanceM(box, category),
@@ -138,8 +142,16 @@ export function stopAutopilot(reason?: string, kind: ToastKind = 'warn'): void {
   tracker = null;
   controller = null;
   out = NEUTRAL;
-  report('ai', NEUTRAL);
-  Object.assign(autopilot, { follow: false, active: false, label: null, box: null, lost: false, distanceM: null });
+  reportAi('follow', NEUTRAL);
+  Object.assign(autopilot, {
+    follow: false,
+    active: false,
+    label: null,
+    category: null,
+    box: null,
+    lost: false,
+    distanceM: null,
+  });
   // Pedido do próprio usuário dispensa aviso (o botão já mostra); no celular o
   // aviso ainda cobriria o vídeo na hora de escolher outro alvo.
   if (reason) toast(kind, wasActive ? 'Seguir desligado' : 'Alvo solto', reason);
@@ -176,7 +188,7 @@ function step(r: AiResult): void {
   const next: Sticks = { roll: 0, pitch: follow.pitch, throttle: 0, yaw: follow.yaw };
   out = slew(out, next, FOLLOW.slewPerS * Math.min(0.5, (now - outAt) / 1000));
   outAt = now;
-  report('ai', out);
+  reportAi('follow', out);
 }
 
 /** Confere o que não depende das análises. */

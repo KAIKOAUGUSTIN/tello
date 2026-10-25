@@ -210,6 +210,11 @@
           Toque em Seguir (F) e escolha uma caixa cinza, ou arraste em volta de qualquer coisa. Funciona melhor com boa
           luz e alvos que se movem devagar.
         </span>
+        <span class="muted">
+          Gestos (G), de frente para o drone, a uns 2 a 3 m: <b>V</b> tira foto em 3 s; <b>palma aberta</b> guia o
+          drone no ar (suba, desça ou leve a mão para o lado e ele vai junto; volte a mão ao ponto inicial para ele
+          parar); <b>punho fechado</b> para tudo.
+        </span>
       </section>
 
       {#if drone.caps?.imu_calibration}
@@ -282,7 +287,10 @@
               <dt>L</dt><dd>Pousar</dd>
               <dt>Espaço</dt><dd>Pairar</dd>
               <dt>P · R</dt><dd>Foto · gravar vídeo</dd>
-              {#if settings.aiEnabled}<dt>F</dt><dd>Seguir (IA): escolher o alvo, ou parar</dd>{/if}
+              {#if settings.aiEnabled}
+                <dt>F</dt><dd>Seguir (IA): escolher o alvo, ou parar</dd>
+                <dt>G</dt><dd>Gestos (IA): ligar ou desligar</dd>
+              {/if}
               <dt>Esc Esc</dt><dd>Emergência</dd>
             </dl>
           {/if}

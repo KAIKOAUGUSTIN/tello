@@ -1,10 +1,11 @@
 // Motor de visão: manda quadros do vídeo para o worker do MediaPipe e repassa
-// o que ele achou (detecções e o alvo rastreado). Só analisa enquanto a IA
-// está ligada e o vídeo chega.
+// o que ele achou (detecções, o alvo rastreado e a mão). Só analisa enquanto a
+// IA está ligada e o vídeo chega.
 
 import { iou, type Box, type Detection } from './boxes.ts';
-import type { FromWorker, ToWorker, TrackCommand } from './messages.ts';
-import { mockScene, type MockObject } from './mock.ts';
+import type { HandSeen } from './hand.ts';
+import type { FromWorker, HandCrop, ToWorker, TrackCommand } from './messages.ts';
+import { mockHand, mockScene, type MockObject } from './mock.ts';
 import type { Seen } from './tracker.ts';
 
 export type AiStatus = 'off' | 'loading' | 'ready' | 'error';
@@ -24,6 +25,9 @@ export const ai = $state({
   /** `performance.now()` do último resultado. */
   at: 0,
   error: null as string | null,
+  /** Reconhecedor de gestos (carrega só quando os gestos são ligados). */
+  hands: 'off' as AiStatus,
+  handsError: null as string | null,
   /** Só no motor simulado: o que está "na frente da câmera", para desenhar. */
   mockObjects: [] as MockObject[],
 });
@@ -35,6 +39,8 @@ export interface AiResult {
   /** `null` quando o detector não rodou neste quadro. */
   detections: Detection[] | null;
   track: Seen | null;
+  /** `null` quando a mão não foi procurada neste quadro. */
+  hand: HandSeen | null;
 }
 
 /** Sem rastrear, o detector roda em todo quadro analisado, até esse limite. */
@@ -50,6 +56,9 @@ const TRACK_HZ = 30;
 const DETECT_GAP_MS = 100;
 const DETECT_SHARE = 3;
 const SHAKY_PSR = 10;
+/** Com os gestos ligados, a mão é procurada até tantas vezes por segundo, alternando com o detector. */
+const HAND_HZ = 10;
+const HAND_CROP_PX = 256;
 const ANALYSIS_WIDTH = 480;
 /** Sem resultado novo por este tempo, as detecções são descartadas. */
 const STALE_MS = 500;
@@ -65,6 +74,11 @@ let pendingInit: Box | null = null;
 let lastDetect = 0;
 let detectMs = 0;
 let lastPsr = Infinity;
+/** Onde procurar a mão (fração do quadro), ou `null`. */
+let handRegion: Box | null = null;
+let lastHand = 0;
+let lastWasDetect = false;
+let handsSince = 0;
 const listeners = new Set<(r: AiResult) => void>();
 
 function mockRequested(): boolean {
@@ -89,6 +103,33 @@ export function stopTracking(): void {
   tracking = false;
   pendingInit = null;
   mockTarget = null;
+}
+
+/** Carrega o reconhecedor de gestos (avisa em `ai.hands`). */
+export function startHands(): void {
+  if (ai.hands === 'loading' || ai.hands === 'ready') return;
+  ai.hands = 'loading';
+  ai.handsError = null;
+  handsSince = performance.now();
+  if (mock) {
+    setTimeout(() => {
+      if (ai.hands === 'loading') ai.hands = 'ready';
+    }, 300);
+    return;
+  }
+  post({ type: 'hands', on: true });
+}
+
+export function stopHands(): void {
+  if (ai.hands !== 'off') post({ type: 'hands', on: false });
+  ai.hands = 'off';
+  ai.handsError = null;
+  handRegion = null;
+}
+
+/** Área do quadro onde procurar a mão (a parte de cima de quem comanda), ou `null`. */
+export function setHandRegion(box: Box | null): void {
+  handRegion = box;
 }
 
 export function startAi(): void {
@@ -124,44 +165,87 @@ export function stopAi(): void {
   clearInterval(sweep);
   done = [];
   detectMs = 0;
+  handRegion = null;
   stopTracking();
-  Object.assign(ai, { status: 'off', delegate: null, hz: 0, ms: 0, detections: [], at: 0, error: null, mockObjects: [] });
+  Object.assign(ai, {
+    status: 'off',
+    delegate: null,
+    hz: 0,
+    ms: 0,
+    detections: [],
+    at: 0,
+    error: null,
+    hands: 'off',
+    handsError: null,
+    mockObjects: [],
+  });
 }
 
 /** Chamado pelo player a cada quadro decodificado, antes de liberá-lo. */
 export function analyzeFrame(frame: VideoFrame): void {
   if (ai.status !== 'ready' || busy) return;
   const now = performance.now();
-  if (now - lastSent < 1000 / (tracking ? TRACK_HZ : DETECT_HZ)) return;
+  const handsOn = ai.hands === 'ready' && handRegion !== null;
+  if (now - lastSent < 1000 / (tracking || handsOn ? TRACK_HZ : DETECT_HZ)) return;
   lastSent = now;
   const aspect = frame.displayWidth / frame.displayHeight;
   if (ai.aspect !== aspect) ai.aspect = aspect;
 
   const since = now - lastDetect;
-  const detect =
+  let detect =
     !tracking ||
     since >= Math.max(DETECT_GAP_MS, DETECT_SHARE * detectMs) ||
     (lastPsr < SHAKY_PSR && since >= DETECT_GAP_MS);
+  // A mão alterna com o detector: os dois no mesmo quadro dobrariam o atraso.
+  const region = handsOn && now - lastHand >= 1000 / HAND_HZ && (!detect || lastWasDetect) ? handRegion : null;
+  if (region) {
+    detect = false;
+    lastHand = now;
+  }
   if (detect) lastDetect = now;
+  lastWasDetect = detect;
   const track: TrackCommand | null = tracking ? { init: pendingInit } : null;
   pendingInit = null;
 
-  if (mock) return mockFrame(now, detect, track);
+  if (mock) return mockFrame(now, detect, track, region);
   if (!worker) return;
   busy = true;
   const copy = frame.clone();
   const height = Math.round(ANALYSIS_WIDTH / aspect);
-  createImageBitmap(copy, { resizeWidth: ANALYSIS_WIDTH, resizeHeight: height, resizeQuality: 'low' })
-    .then((bitmap) => {
-      if (!worker) {
-        bitmap.close();
+  // Um recorte da mão que falhe não derruba o quadro; o que der certo e não for usado é liberado.
+  Promise.allSettled([
+    createImageBitmap(copy, { resizeWidth: ANALYSIS_WIDTH, resizeHeight: height, resizeQuality: 'low' }),
+    region ? cropHand(copy, region) : null,
+  ])
+    .then(([small, crop]) => {
+      const bitmap = small.status === 'fulfilled' ? small.value : null;
+      const hand = crop.status === 'fulfilled' ? crop.value : null;
+      if (!worker || !bitmap) {
+        bitmap?.close();
+        hand?.bitmap.close();
         busy = false;
         return;
       }
-      post({ type: 'frame', bitmap, ts: now, detect, track }, [bitmap]);
+      post({ type: 'frame', bitmap, ts: now, detect, track, hand }, hand ? [bitmap, hand.bitmap] : [bitmap]);
     })
     .catch(() => (busy = false))
     .finally(() => copy.close());
+}
+
+/** Recorte da mão do quadro em resolução cheia (a mão a 3 m tem poucos pixels no quadro reduzido). */
+async function cropHand(frame: VideoFrame, box: Box): Promise<HandCrop> {
+  const fw = frame.displayWidth;
+  const fh = frame.displayHeight;
+  const sx = Math.round(box.x * fw);
+  const sy = Math.round(box.y * fh);
+  const sw = Math.max(1, Math.round(box.w * fw));
+  const sh = Math.max(1, Math.round(box.h * fh));
+  const bitmap = await createImageBitmap(frame, sx, sy, sw, sh, {
+    resizeWidth: HAND_CROP_PX,
+    resizeHeight: HAND_CROP_PX,
+    resizeQuality: 'medium',
+  });
+  return { bitmap, box: { x: sx / fw, y: sy / fh, w: sw / fw, h: sh / fh } };
 }
 
 function post(msg: ToWorker, transfer: Transferable[] = []): void {
@@ -176,16 +260,21 @@ function onMessage(msg: FromWorker): void {
     detectMs = 0;
   } else if (msg.type === 'error') {
     fail(msg.message);
+  } else if (msg.type === 'hands') {
+    if (ai.hands !== 'loading' && ai.hands !== 'ready') return;
+    ai.hands = msg.ok ? 'ready' : 'error';
+    ai.handsError = msg.ok ? null : msg.message;
+    if (!msg.ok) console.warn('IA: reconhecedor de gestos:', msg.message);
   } else {
     busy = false;
-    finish({ ts: msg.ts, detections: msg.detections, track: msg.track }, msg.ms);
+    finish({ ts: msg.ts, detections: msg.detections, track: msg.track, hand: msg.hand }, msg.ms);
   }
 }
 
 // Motor simulado: as "detecções" e o "rastreador" saem da cena de mock.ts.
 let mockTarget: { id: string | null; box: Box } | null = null;
 
-function mockFrame(now: number, detect: boolean, track: TrackCommand | null): void {
+function mockFrame(now: number, detect: boolean, track: TrackCommand | null, region: Box | null): void {
   const scene = mockScene(now);
   ai.mockObjects = scene;
   let seen: Seen | null = null;
@@ -203,7 +292,9 @@ function mockFrame(now: number, detect: boolean, track: TrackCommand | null): vo
   const detections = detect
     ? scene.flatMap((o) => (o.category ? [{ ...o.box, category: o.category, score: 0.82 }] : []))
     : null;
-  finish({ ts: now, detections, track: seen }, 3 + Math.random() * 2);
+  const person = scene.find((o) => o.category === 'person');
+  const hand = region ? mockHand(now - handsSince, person && iou(person.box, region) > 0 ? person.box : null) : null;
+  finish({ ts: now, detections, track: seen, hand }, 3 + Math.random() * 2);
 }
 
 function finish(result: AiResult, ms: number): void {
@@ -236,4 +327,6 @@ function fail(message: string): void {
   ai.status = 'error';
   ai.error = message;
   ai.detections = [];
+  ai.hands = 'off';
+  handRegion = null;
 }

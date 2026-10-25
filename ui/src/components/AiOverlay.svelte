@@ -2,6 +2,7 @@
   import { autopilot, selectRect } from '../ai/autopilot.svelte';
   import { labelOf, rectFrom } from '../ai/boxes';
   import { ai } from '../ai/engine.svelte';
+  import { gestures } from '../ai/gestures.svelte';
   import type { PlayerStats } from '../video/player';
 
   let { stats }: { stats: PlayerStats | null } = $props();
@@ -53,6 +54,7 @@
   }
 
   const font = $derived(Math.round(w * 0.02));
+  const GESTURE_LABEL = { none: '', victory: 'V', palm: 'Palma', fist: 'Punho' } as const;
   const labelY = (y: number) => Math.max(font + 4, y * h - 6);
 </script>
 
@@ -95,6 +97,16 @@
 
   {#if dragBox}
     <rect class="drag" x={dragBox.x * w} y={dragBox.y * h} width={dragBox.w * w} height={dragBox.h * h} />
+  {/if}
+
+  {#if gestures.on && gestures.palm}
+    {@const p = gestures.palm}
+    <g class="palm" class:guiding={gestures.guiding}>
+      <circle cx={p.x * w} cy={p.y * h} r={w * 0.018} />
+      {#if gestures.gesture !== 'none'}
+        <text x={p.x * w + w * 0.026} y={p.y * h + font / 3} font-size={font}>{GESTURE_LABEL[gestures.gesture]}</text>
+      {/if}
+    </g>
   {/if}
 
   {#if autopilot.follow && autopilot.box}
@@ -166,6 +178,26 @@
   }
 
   .target text {
+    fill: var(--accent);
+  }
+
+  .palm circle {
+    fill: rgb(226 232 240 / 0.25);
+    stroke: rgb(226 232 240 / 0.9);
+    stroke-width: 2px;
+    vector-effect: non-scaling-stroke;
+  }
+
+  .palm text {
+    fill: rgb(226 232 240);
+  }
+
+  .palm.guiding circle {
+    fill: rgb(45 212 238 / 0.3);
+    stroke: var(--accent);
+  }
+
+  .palm.guiding text {
     fill: var(--accent);
   }
 

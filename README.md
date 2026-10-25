@@ -122,12 +122,12 @@ Os itens marcados com "modo App" dependem do protocolo do app oficial: conecte e
 
 ### IA (experimental)
 
-Em **Configurações → IA**, o app reconhece pessoas, carros e outras coisas no vídeo com o detector de objetos do [MediaPipe](https://ai.google.dev/edge/mediapipe/solutions/vision/object_detector) (modelo EfficientDet-Lite0) e segue o que você escolher. Vem desligada.
+Em **Configurações → IA**, o app reconhece pessoas, carros e outras coisas no vídeo com o detector de objetos do [MediaPipe](https://ai.google.dev/edge/mediapipe/solutions/vision/object_detector) (modelo EfficientDet-Lite0) e segue o que você escolher. Com os gestos ligados, o [reconhecedor de gestos](https://ai.google.dev/edge/mediapipe/solutions/vision/gesture_recognizer) do MediaPipe lê a sua mão. Vem desligada.
 
 - **Tudo no aparelho.** O motor e o modelo vêm dentro do app, e a análise roda num worker, sem travar a interface. Nada precisa de internet (no Wi-Fi do drone ela nem existe). O MediaPipe tenta enviar métricas de uso ao Google; o app bloqueia esse envio e qualquer outro acesso à rede a partir da IA.
 - **Desempenho.** Um rastreador visual (filtro de correlação MOSSE, feito no app) acompanha o alvo em todo quadro, até 30 por segundo, em poucos milissegundos. O detector roda de tempos em tempos para corrigir o tamanho e a deriva, numa cópia do quadro reduzida a 480 px de largura. O app tenta a GPU e passa para a CPU se ela falhar ou for lenta (sem placa de vídeo, a GPU é emulada e fica umas dez vezes mais lenta). O status aparece nas configurações, por exemplo "Pronta · CPU · 18 análises/s · 5 ms".
 - **Limites do modelo.** O detector conhece pessoa, bicicleta, carro, moto, ônibus, caminhão, barco, cachorro, gato, cavalo e bola. Qualquer outra coisa pode ser marcada à mão, mas aí só o rastreador visual a acompanha, e ele se perde com mudanças grandes de aparência ou se o alvo ficar tampado por muito tempo. Funciona melhor com boa luz e o alvo inteiro na imagem (uma pessoa a uns 2 a 4 m).
-- **Tamanho.** O motor e o modelo somam uns 18 MB no app (7 MB comprimidos). O APK universal do Android leva uma cópia do app para cada tipo de processador, então lá eles pesam três vezes.
+- **Tamanho.** O motor e os dois modelos somam uns 26 MB no app (14 MB comprimidos). O APK universal do Android leva uma cópia do app para cada tipo de processador, então lá eles pesam três vezes.
 
 #### Seguir
 
@@ -140,6 +140,22 @@ No chão, o alvo fica travado e a caixa acompanha, para você conferir antes de 
 - **Carro, só devagar.** O Tello chega a uns 8 m/s no modo rápido e o Wi-Fi alcança uns 100 m: dá para seguir um carro andando devagar num estacionamento vazio, não na rua.
 - **Na dúvida, paira.** Se o alvo some, o drone fica parado e aparece "Alvo perdido (Pessoa): pairando". Se ele reaparece perto de onde sumiu e com o mesmo tamanho, o seguir continua sozinho.
 - **Desliga sozinho**, com aviso e o motivo: qualquer toque nos controles (teclado, controle, sticks na tela), Espaço, pousar ou emergência, drone no chão, conexão ou sinal perdidos, vídeo desligado, janela sem foco ou app em segundo plano, alvo sumido por 15 s ou menos de 10 análises por segundo durante 3 s. Cada liga e desliga fica registrado na caixa-preta.
+
+#### Gestos
+
+Aperte **G** ou o botão **Gestos** e fique de frente para o drone, a uns 2 a 3 m, com a mão bem visível.
+
+| Gesto | O que faz |
+|---|---|
+| **V** (paz e amor), parado por meio segundo | Conta 3 s na tela e tira a foto. Dá tempo de baixar a mão e fazer pose. Outra foto só depois de 5 s, com um V novo. |
+| **Palma aberta**, com o drone no ar | Guia o drone: o lugar da mão quando você abre a palma é o centro. Suba ou desça a mão e o drone sobe ou desce; leve a mão para o lado e ele vai para esse lado. Volte a mão ao ponto inicial e ele para. |
+| **Punho fechado** | Para tudo: a guia, a contagem da foto e o seguir. O drone fica pairando. |
+
+- **Quem comanda** é a pessoa seguida ou, sem seguir, a maior pessoa perto do centro da imagem. Com o seguir ligado, a mão cuida da altura e dos lados, e o seguir continua com o giro e a distância; mão de lado faz o drone dar a volta em você.
+- **A mão pesa pouco.** A IA usa no máximo 30% da subida e 25% dos lados, mede a mão em relação ao corpo (o drone se mexendo não vira comando) e não desce abaixo de 50 cm do chão. Nenhum gesto decola ou pousa.
+- **Na dúvida, paira.** Um gesto só vale depois de se repetir por uns 0,3 s. Sem a mão por um instante, o drone fica parado; sem a mão por 0,3 s, a guia solta e é preciso abrir a palma de novo.
+- **O controle manual ganha de tudo.** Qualquer toque nos controles, Espaço, pousar ou emergência larga a guia e cancela a foto. Os gestos continuam ligados, e a guia só volta depois que você fechar ou baixar a mão e abrir a palma de novo. Eles desligam sozinhos nas mesmas situações do seguir (conexão, vídeo, foco).
+- **Custo.** O reconhecedor de mãos só carrega quando você liga os gestos e roda num recorte da parte de cima da pessoa, tirado do quadro em resolução cheia, alternando com o detector.
 
 ### Onde ficam os arquivos
 
@@ -273,4 +289,4 @@ O que é o coração do projeto é feito à mão: os protocolos do Tello, CRCs, 
 
 ## Licença
 
-GPL-3.0. Ícones do [Lucide](https://lucide.dev) (licença ISC). Motor do [MediaPipe](https://github.com/google-ai-edge/mediapipe) e modelo EfficientDet-Lite0 (licença Apache-2.0, ver `ui/src/ai/LICENSE-mediapipe.txt` e `ui/src/ai/models/README.md`).
+GPL-3.0. Ícones do [Lucide](https://lucide.dev) (licença ISC). Motor do [MediaPipe](https://github.com/google-ai-edge/mediapipe), modelo EfficientDet-Lite0 e reconhecedor de gestos (licença Apache-2.0, ver `ui/src/ai/LICENSE-mediapipe.txt` e `ui/src/ai/models/README.md`).

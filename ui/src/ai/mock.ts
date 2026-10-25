@@ -1,9 +1,11 @@
 // Cena do motor simulado (?ai=mock), para desenvolver a interface sem o modelo
 // e sem drone: uma pessoa andando de um lado para o outro (some por 2 s a cada
 // 20 s), um carro que passa de vez em quando e um balão que o detector não
-// conhece (para testar a marcação à mão).
+// conhece (para testar a marcação à mão). Com os gestos ligados, a pessoa faz
+// uma sequência fixa de gestos.
 
 import type { Box } from './boxes.ts';
+import type { Gesture, HandSeen } from './hand.ts';
 
 export interface MockObject {
   id: string;
@@ -34,4 +36,26 @@ export function mockScene(nowMs: number): MockObject[] {
     shape: 'balloon',
   });
   return objects;
+}
+
+/**
+ * Gestos roteirizados, contados de quando os gestos foram ligados (a cada 24 s):
+ * palma subindo e voltando (2–8 s), V (9–10,5 s), palma parada (15–17 s) e
+ * punho (17–18,5 s).
+ */
+export function mockHand(sinceMs: number, person: Box | null): HandSeen {
+  if (!person) return { gesture: 'none', score: 0, palm: null };
+  const t = (sinceMs / 1000) % 24;
+  let gesture: Gesture | null = null;
+  let raise = 0;
+  if (t >= 2 && t < 8) {
+    gesture = 'palm';
+    // Sobe 20% da altura da pessoa entre 3 e 5 s, segura e volta entre 6 e 8 s.
+    raise = 0.2 * Math.min(1, Math.max(0, Math.min(t - 3, 8 - t) / 2));
+  } else if (t >= 9 && t < 10.5) gesture = 'victory';
+  else if (t >= 15 && t < 17) gesture = 'palm';
+  else if (t >= 17 && t < 18.5) gesture = 'fist';
+  if (!gesture) return { gesture: 'none', score: 0, palm: null };
+  const palm = { x: person.x + person.w * 0.85, y: person.y + person.h * (0.3 - raise) };
+  return { gesture, score: 0.9, palm };
 }
