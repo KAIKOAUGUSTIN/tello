@@ -1,6 +1,7 @@
 // Ações de voo de alto nível, compartilhadas por botões, teclado e controle.
 
 import { stopAutopilot } from '../ai/autopilot.svelte';
+import { interruptGestures } from '../ai/gestures.svelte';
 import { backendRef, drone, emergency as droneEmergency, isFlying, run, startVideo, stopVideo } from './drone.svelte';
 import { errorText, stamp } from './format';
 import { toast } from './toasts.svelte';
@@ -39,16 +40,19 @@ export function endTakeoffHold(): void {
 
 export function land(): void {
   stopAutopilot('Pousando', 'info');
+  interruptGestures();
   void run({ type: 'land' });
 }
 
 export function hover(): void {
   stopAutopilot('Pairar', 'info');
+  interruptGestures();
   void run({ type: 'stop' }, null);
 }
 
 export function emergency(): void {
   stopAutopilot('Emergência');
+  interruptGestures();
   droneEmergency();
 }
 

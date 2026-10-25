@@ -9,6 +9,8 @@
   import { input } from '../input/mixer.svelte';
   import type { PlayerStats } from '../video/player';
   import { autopilot } from '../ai/autopilot.svelte';
+  import { ai } from '../ai/engine.svelte';
+  import { gestures } from '../ai/gestures.svelte';
   import Icon from './Icon.svelte';
 
   let { stats }: { stats: PlayerStats | null } = $props();
@@ -57,14 +59,36 @@
     {:else if drone.linkLost}
       <span class="banner danger"><Icon name="wifi-off" size={14} /> Sinal do drone perdido</span>
     {/if}
-    {#if autopilot.follow}
+    {#if autopilot.selecting}
+      <span class="banner info">
+        <Icon name="scan-eye" size={14} /> Toque no que seguir ou arraste uma caixa em volta{platform.mobile
+          ? ''
+          : ' (F cancela)'}
+      </span>
+    {:else if autopilot.follow}
       {#if autopilot.lost}
-        <span class="banner warn"><Icon name="person-standing" size={14} /> Pessoa perdida: pairando</span>
+        <span class="banner warn"><Icon name="scan-eye" size={14} /> Alvo perdido ({autopilot.label}): pairando</span>
+      {:else if !autopilot.active}
+        <span class="banner info"><Icon name="scan-eye" size={14} /> Alvo travado: {autopilot.label} · decole para seguir</span>
       {:else}
         <span class="banner info">
-          <Icon name="person-standing" size={14} /> Seguindo{autopilot.distanceM
+          <Icon name="scan-eye" size={14} /> Seguindo: {autopilot.label}{autopilot.distanceM
             ? ` · ~${autopilot.distanceM.toLocaleString('pt-BR', { maximumFractionDigits: 1 })} m`
             : ''}
+        </span>
+      {/if}
+    {/if}
+    {#if gestures.on}
+      {#if gestures.countdown !== null}
+        <span class="banner info"><Icon name="camera" size={14} /> Foto em {gestures.countdown}</span>
+      {:else if gestures.guiding}
+        <span class="banner info"><Icon name="hand" size={14} /> Mão: guiando</span>
+      {:else if ai.hands === 'loading'}
+        <span class="banner info"><Icon name="hand" size={14} /> Gestos: carregando…</span>
+      {:else}
+        <span class="banner info">
+          <Icon name="hand" size={14} />
+          {platform.compact ? 'Gestos ligados' : 'Gestos: V = foto · palma = guiar · punho = parar'}
         </span>
       {/if}
     {/if}
@@ -145,6 +169,12 @@
       </svg>
       <span>Segure para decolar</span>
     </div>
+  {/if}
+
+  {#if gestures.countdown !== null}
+    {#key gestures.countdown}
+      <div class="countdown num">{gestures.countdown}</div>
+    {/key}
   {/if}
 
   {#if stats && stats.decoded > 0}
@@ -402,6 +432,29 @@
     stroke-dasharray: 276.5;
     transform: rotate(-90deg);
     transform-origin: 50% 50%;
+  }
+
+  /* Contagem da foto pelo V: grande, para ser vista de longe. */
+  .countdown {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    transform: translate(-50%, -50%);
+    font: 800 120px/1 var(--font-display);
+    color: #fff;
+    text-shadow: 0 2px 16px rgb(0 0 0 / 0.7);
+    animation: pop 1s ease-out;
+  }
+
+  @keyframes pop {
+    from {
+      opacity: 0.2;
+      transform: translate(-50%, -50%) scale(1.4);
+    }
+    30% {
+      opacity: 1;
+      transform: translate(-50%, -50%) scale(1);
+    }
   }
 
   .vstats {

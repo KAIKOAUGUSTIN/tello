@@ -18,6 +18,7 @@
   import { BEGINNER, saveSettings, settings } from '../lib/settings.svelte';
   import type { SmartVideo } from '../lib/types';
   import { autopilot, toggleFollow } from '../ai/autopilot.svelte';
+  import { gestures, toggleGestures } from '../ai/gestures.svelte';
   import FlipPad from './FlipPad.svelte';
   import Icon from './Icon.svelte';
 
@@ -92,16 +93,28 @@
       {/if}
     </div>
     {#if settings.aiEnabled}
-      <button
-        class="btn"
-        class:on={autopilot.follow}
-        disabled={!flying && !autopilot.follow}
-        onclick={toggleFollow}
-        title="Segue a pessoa no centro da imagem (F). Qualquer toque nos controles devolve o comando."
-      >
-        <Icon name="person-standing" size={16} />
-        {autopilot.follow ? 'Parar de seguir' : 'Seguir pessoa'}
-      </button>
+      <div class="row">
+        <button
+          class="btn"
+          class:on={autopilot.follow || autopilot.selecting}
+          disabled={!drone.videoOn && !autopilot.follow}
+          onclick={toggleFollow}
+          title="Escolha uma pessoa, um carro ou qualquer coisa na imagem para o drone seguir (F). Qualquer toque nos controles devolve o comando."
+        >
+          <Icon name="scan-eye" size={16} />
+          {autopilot.follow ? 'Parar de seguir' : autopilot.selecting ? 'Cancelar' : 'Seguir'}
+        </button>
+        <button
+          class="btn"
+          class:on={gestures.on}
+          disabled={!drone.videoOn && !gestures.on}
+          onclick={toggleGestures}
+          title="V: foto em 3 s. Palma aberta: guia o drone no ar. Punho fechado: para tudo (G)."
+        >
+          <Icon name="hand" size={16} />
+          {gestures.on ? 'Gestos ligados' : 'Gestos'}
+        </button>
+      </div>
     {/if}
   </section>
 

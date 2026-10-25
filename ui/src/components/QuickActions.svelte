@@ -1,12 +1,13 @@
 <script lang="ts">
   // Botões grandes sobre o vídeo no layout compacto (celular): decolar/pousar e
   // pairar à esquerda, foto e gravação à direita, como no app oficial. O seguir
-  // da IA fica ao lado do decolar/pousar, para não descer até os sticks.
+  // e os gestos da IA ficam ao lado, para não descer até os sticks.
   import { elapsed } from '../lib/clock.svelte';
   import { beginTakeoffHold, endTakeoffHold, hold, hover, land, photo, toggleRecording } from '../lib/commands.svelte';
   import { drone, isFlying } from '../lib/drone.svelte';
   import { settings } from '../lib/settings.svelte';
   import { autopilot, toggleFollow } from '../ai/autopilot.svelte';
+  import { gestures, toggleGestures } from '../ai/gestures.svelte';
   import Icon from './Icon.svelte';
 
   const flying = $derived(isFlying());
@@ -41,13 +42,23 @@
   {#if settings.aiEnabled}
     <button
       class="act follow"
-      class:on={autopilot.follow}
-      disabled={!flying && !autopilot.follow}
+      class:on={autopilot.follow || autopilot.selecting}
+      disabled={!drone.videoOn && !autopilot.follow}
       onclick={toggleFollow}
-      aria-label={autopilot.follow ? 'Parar de seguir' : 'Seguir pessoa'}
+      aria-label={autopilot.follow ? 'Parar de seguir' : autopilot.selecting ? 'Cancelar a escolha' : 'Seguir'}
     >
-      <Icon name="person-standing" size={18} />
-      <span>Seguir</span>
+      <Icon name="scan-eye" size={18} />
+      <span>{autopilot.follow ? 'Parar' : autopilot.selecting ? 'Cancelar' : 'Seguir'}</span>
+    </button>
+    <button
+      class="act gestures"
+      class:on={gestures.on}
+      disabled={!drone.videoOn && !gestures.on}
+      onclick={toggleGestures}
+      aria-label={gestures.on ? 'Desligar os gestos' : 'Gestos'}
+    >
+      <Icon name="hand" size={18} />
+      <span>Gestos</span>
     </button>
   {/if}
 </div>
@@ -89,6 +100,10 @@
 
   .left .follow {
     grid-area: 1 / 2;
+  }
+
+  .left .gestures {
+    grid-area: 2 / 2;
   }
 
   .right {
@@ -145,7 +160,8 @@
     color: var(--warn);
   }
 
-  .follow.on {
+  .follow.on,
+  .gestures.on {
     border-color: rgb(45 212 238 / 0.7);
     background: rgb(45 212 238 / 0.25);
     color: var(--accent);

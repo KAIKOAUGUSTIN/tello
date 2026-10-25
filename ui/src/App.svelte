@@ -25,6 +25,7 @@
   import { startMixer } from './input/mixer.svelte';
   import { toggleFollow } from './ai/autopilot.svelte';
   import { startAi, stopAi } from './ai/engine.svelte';
+  import { toggleGestures } from './ai/gestures.svelte';
 
   let settingsOpen = $state(false);
   let logOpen = $state(false);
@@ -39,6 +40,7 @@
     if (s === 'record') void toggleRecording();
     if (s === 'emergency') emergency();
     if (s === 'follow' && settings.aiEnabled) toggleFollow();
+    if (s === 'gestures' && settings.aiEnabled) toggleGestures();
   }
 
   onMount(() => {

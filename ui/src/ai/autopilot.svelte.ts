@@ -1,33 +1,44 @@
-// Piloto da IA: trava uma pessoa e transforma as análises em sticks.
-// Na dúvida, para: pessoa perdida ou análises atrasadas deixam o drone
-// pairando, e qualquer sinal de problema (ou toque nos controles) desliga.
+// Piloto da IA: o usuário escolhe o que seguir (tocando numa caixa cinza ou
+// arrastando em volta), o rastreador acompanha e o controle vira sticks. No
+// chão só rastreia; no ar, segue. Na dúvida, para: alvo perdido ou análises
+// atrasadas deixam o drone pairando, e qualquer sinal de problema (ou toque
+// nos controles) desliga.
 
 import { backendRef, drone, isFlying } from '../lib/drone.svelte';
 import { platform } from '../lib/platform.svelte';
 import { settings } from '../lib/settings.svelte';
 import { toast, type ToastKind } from '../lib/toasts.svelte';
 import { NEUTRAL, type Sticks } from '../lib/types';
-import { input, onManual, report } from '../input/mixer.svelte';
-import { ai, onResult } from './engine.svelte';
-import { FollowController, slew } from './follow.ts';
-import { distanceM } from './pose.ts';
-import { lockTarget, Tracker, type Target } from './tracker.ts';
+import { input, onManual } from '../input/mixer.svelte';
+import { distanceM, matchRect, pickAt, type Box } from './boxes.ts';
+import { ai, onResult, startTracking, stopTracking, type AiResult } from './engine.svelte';
+import { FOLLOW, FollowController, slew } from './follow.ts';
+import { reportAi } from './output';
+import { Tracker } from './tracker.ts';
 
-/** Abaixo disso o atraso fica grande demais para seguir alguém. */
-export const MIN_HZ = 6;
-/** Pessoa sumida por este tempo: o seguir desliga (o drone já estava pairando). */
+/** Abaixo disso o atraso fica grande demais para seguir alguma coisa. */
+export const MIN_HZ = 10;
+/** Alvo sumido por este tempo: o seguir desliga (o drone já estava pairando). */
 const GIVE_UP_MS = 15_000;
 /** Análises lentas por este tempo: desliga. */
 const SLOW_GRACE_MS = 3000;
-/** Variação máxima dos sticks da IA por segundo. */
-const SLEW_PER_S = 1;
+/** Arrastes menores que isso (fração do quadro) contam como toque. */
+const MIN_DRAG = 0.03;
 const WATCH_MS = 100;
 
 export const autopilot = $state({
+  /** Escolhendo o que seguir (as caixas cinza aparecem na tela). */
+  selecting: false,
+  /** Alvo travado: rastreando no chão, seguindo no ar. */
   follow: false,
-  /** Pessoa travada, como vista na última análise em que apareceu. */
-  target: null as Target | null,
-  /** A pessoa não aparece na última análise. */
+  /** O drone está de fato se movendo atrás do alvo. */
+  active: false,
+  label: null as string | null,
+  /** Categoria do COCO do alvo, ou `null` para algo marcado à mão. */
+  category: null as string | null,
+  /** Caixa do alvo, como vista por último. */
+  box: null as Box | null,
+  /** O alvo não aparece na última análise. */
   lost: false,
   distanceM: null as number | null,
 });
@@ -36,6 +47,7 @@ let tracker: Tracker | null = null;
 let controller: FollowController | null = null;
 let out: Sticks = NEUTRAL;
 let outAt = 0;
+let lastStep = 0;
 let slowSince: number | null = null;
 let stops: (() => void)[] = [];
 
@@ -45,34 +57,55 @@ function note(text: string): void {
     .catch(() => {});
 }
 
-/** Motivo para não poder ligar agora, ou `null`. */
-function blocker(): string | null {
+/** Motivo para a IA não poder comandar agora (seguir ou gestos), ou `null`. */
+export function aiBlocker(): string | null {
   if (!settings.aiEnabled) return 'Ative a IA em Configurações';
   if (ai.status !== 'ready') return ai.status === 'loading' ? 'A IA ainda está carregando' : 'A IA não está funcionando';
   if (drone.conn !== 'connected') return 'Conecte ao drone';
-  if (!isFlying()) return 'Decole antes';
   if (!drone.videoOn) return 'Ligue o vídeo';
-  if (ai.hz < MIN_HZ) return `Análises lentas demais (${ai.hz}/s, mínimo ${MIN_HZ})`;
   return null;
 }
 
+/** Botão Seguir e tecla F: abre a escolha, ou cancela/desliga o que estiver ligado. */
 export function toggleFollow(): void {
   if (autopilot.follow) return stopAutopilot(undefined, 'info');
-  const why = blocker();
+  if (autopilot.selecting) return void (autopilot.selecting = false);
+  const why = aiBlocker();
   if (why) return void toast('warn', 'Não deu para seguir', why);
-  const lock = lockTarget(ai.poses, ai.aspect);
-  if (!lock.ok) return void toast('warn', 'Não deu para seguir', lock.reason);
+  autopilot.selecting = true;
+}
 
-  tracker = new Tracker(lock.target, ai.aspect);
-  controller = new FollowController(lock.target.len);
+/** Toque na tela durante a escolha (coordenadas em fração do quadro). */
+export function selectAt(x: number, y: number): void {
+  const d = pickAt(ai.detections, x, y);
+  if (!d) return void toast('info', 'Nada aqui', 'Toque numa caixa cinza ou arraste em volta do que quer seguir.');
+  lock(d, d.category);
+}
+
+/** Área arrastada durante a escolha: casa com uma detecção ou vira um objeto genérico. */
+export function selectRect(r: Box): void {
+  if (r.w < MIN_DRAG || r.h < MIN_DRAG) return selectAt(r.x + r.w / 2, r.y + r.h / 2);
+  const d = matchRect(ai.detections, r);
+  lock(d ?? r, d?.category ?? null);
+}
+
+function lock(box: Box, category: string | null): void {
+  const now = performance.now();
+  tracker = new Tracker(box, category, now, ai.aspect);
+  controller = null;
   out = NEUTRAL;
-  outAt = performance.now();
+  outAt = lastStep = now;
   slowSince = null;
+  startTracking(box);
   Object.assign(autopilot, {
+    selecting: false,
     follow: true,
-    target: lock.target,
+    active: false,
+    label: tracker.label,
+    category,
+    box,
     lost: false,
-    distanceM: distanceM(lock.target.len),
+    distanceM: distanceM(box, category),
   });
   stops = [
     onResult(step),
@@ -82,43 +115,80 @@ export function toggleFollow(): void {
       return () => clearInterval(timer);
     })(),
   ];
-  const d = distanceM(lock.target.len).toLocaleString('pt-BR', { maximumFractionDigits: 1 });
-  toast('ok', 'Seguindo', `Mantendo uns ${d} m. Qualquer toque nos controles devolve o comando.`);
-  note(`seguir ligado (~${d} m)`);
+  note(`alvo travado: ${tracker.label}`);
+  if (isFlying()) activate();
+  else toast('ok', `Alvo travado: ${tracker.label}`, 'Decole para seguir. Qualquer toque nos controles devolve o comando.');
+}
+
+/** No ar e com o alvo visível: passa a seguir, mantendo o tamanho de agora. */
+function activate(): void {
+  if (!tracker) return;
+  controller = new FollowController(tracker.estimate().size);
+  autopilot.active = true;
+  const d = autopilot.distanceM;
+  const where = d ? `Mantendo uns ${d.toLocaleString('pt-BR', { maximumFractionDigits: 1 })} m. ` : '';
+  toast('ok', `Seguindo: ${tracker.label}`, `${where}Qualquer toque nos controles devolve o comando.`);
+  note(`seguir ligado: ${tracker.label}${d ? ` (~${d.toFixed(1)} m)` : ''}`);
 }
 
 /** Desliga a IA e devolve o comando (sticks no centro). Sem motivo = pedido do usuário. */
 export function stopAutopilot(reason?: string, kind: ToastKind = 'warn'): void {
+  autopilot.selecting = false;
   if (!autopilot.follow) return;
+  const wasActive = autopilot.active;
   stops.forEach((s) => s());
   stops = [];
+  stopTracking();
   tracker = null;
   controller = null;
   out = NEUTRAL;
-  report('ai', NEUTRAL);
-  Object.assign(autopilot, { follow: false, target: null, lost: false, distanceM: null });
-  toast(kind, 'Seguir desligado', reason);
+  reportAi('follow', NEUTRAL);
+  Object.assign(autopilot, {
+    follow: false,
+    active: false,
+    label: null,
+    category: null,
+    box: null,
+    lost: false,
+    distanceM: null,
+  });
+  // Pedido do próprio usuário dispensa aviso (o botão já mostra); no celular o
+  // aviso ainda cobriria o vídeo na hora de escolher outro alvo.
+  if (reason) toast(kind, wasActive ? 'Seguir desligado' : 'Alvo solto', reason);
   note(`seguir desligado${reason ? `: ${reason}` : ''}`);
 }
 
-/** A cada análise: acha a pessoa e calcula os sticks. */
-function step(): void {
-  if (!tracker || !controller) return;
+/** A cada análise: atualiza o alvo e, no ar, calcula os sticks. */
+function step(r: AiResult): void {
+  if (!tracker) return;
   const now = performance.now();
-  const target = tracker.update(ai.poses, now);
-  if (target) {
-    autopilot.target = target;
-    autopilot.distanceM = distanceM(target.len);
+  const seen = tracker.update(r.track, r.detections, r.ts);
+  if (tracker.reinit) startTracking(tracker.reinit);
+  if (seen) {
+    autopilot.box = seen;
+    autopilot.distanceM = distanceM(seen, tracker.category);
   }
-  autopilot.lost = !target;
-  if (tracker.lostFor(now) > GIVE_UP_MS) return stopAutopilot('A pessoa sumiu da imagem');
+  autopilot.lost = !seen;
+  if (tracker.lostFor(r.ts) > GIVE_UP_MS) return stopAutopilot('O alvo sumiu da imagem');
+  if (!isFlying()) return;
+  if (!controller) {
+    if (!seen) return;
+    activate();
+  }
 
-  const follow = controller.step(target, drone.telemetry?.fast_mode === true);
+  const dt = Math.min(0.5, (now - lastStep) / 1000);
+  lastStep = now;
+  const est = seen ? tracker.estimate() : null;
+  const follow = controller!.step(est, {
+    age: (now - r.ts) / 1000,
+    bottom: tracker.box.y + tracker.box.h,
+    dt,
+    fast: drone.telemetry?.fast_mode === true,
+  });
   const next: Sticks = { roll: 0, pitch: follow.pitch, throttle: 0, yaw: follow.yaw };
-  const dt = Math.min(0.5, (now - outAt) / 1000);
-  out = slew(out, next, SLEW_PER_S * dt);
+  out = slew(out, next, FOLLOW.slewPerS * Math.min(0.5, (now - outAt) / 1000));
   outAt = now;
-  report('ai', out);
+  reportAi('follow', out);
 }
 
 /** Confere o que não depende das análises. */
@@ -128,9 +198,10 @@ function watch(): void {
   if (ai.status !== 'ready') return stopAutopilot('A IA parou');
   if (drone.conn !== 'connected') return stopAutopilot('Conexão encerrada');
   if (drone.linkLost || drone.reconnecting) return stopAutopilot('Sinal do drone perdido');
-  if (!isFlying()) return stopAutopilot('O drone não está voando');
   if (!drone.videoOn) return stopAutopilot('Vídeo desligado');
   if (!input.focused) return stopAutopilot(platform.mobile ? 'App em segundo plano' : 'Janela sem foco');
+  if (!autopilot.active) return;
+  if (!isFlying()) return stopAutopilot('O drone não está voando');
   if (ai.hz < MIN_HZ) {
     slowSince ??= now;
     if (now - slowSince > SLOW_GRACE_MS) return stopAutopilot(`Análises lentas demais (${ai.hz}/s)`);

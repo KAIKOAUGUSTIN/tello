@@ -42,7 +42,7 @@
   <TopBar {onSettings} {onLog} {logOpen} onMenu={() => (menuOpen = !menuOpen)} {menuOpen} />
   <main class="stage" bind:clientHeight={stageHeight}>
     <VideoView bind:stats />
-    {#if settings.aiEnabled && settings.aiOverlay && drone.videoOn}
+    {#if settings.aiEnabled && drone.videoOn}
       <AiOverlay {stats} />
     {/if}
     <Hud {stats} />
