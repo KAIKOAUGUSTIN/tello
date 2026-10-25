@@ -57,12 +57,20 @@
     {:else if drone.linkLost}
       <span class="banner danger"><Icon name="wifi-off" size={14} /> Sinal do drone perdido</span>
     {/if}
-    {#if autopilot.follow}
+    {#if autopilot.selecting}
+      <span class="banner info">
+        <Icon name="scan-eye" size={14} /> Toque no que seguir ou arraste uma caixa em volta{platform.mobile
+          ? ''
+          : ' (F cancela)'}
+      </span>
+    {:else if autopilot.follow}
       {#if autopilot.lost}
-        <span class="banner warn"><Icon name="person-standing" size={14} /> Pessoa perdida: pairando</span>
+        <span class="banner warn"><Icon name="scan-eye" size={14} /> Alvo perdido ({autopilot.label}): pairando</span>
+      {:else if !autopilot.active}
+        <span class="banner info"><Icon name="scan-eye" size={14} /> Alvo travado: {autopilot.label} · decole para seguir</span>
       {:else}
         <span class="banner info">
-          <Icon name="person-standing" size={14} /> Seguindo{autopilot.distanceM
+          <Icon name="scan-eye" size={14} /> Seguindo: {autopilot.label}{autopilot.distanceM
             ? ` · ~${autopilot.distanceM.toLocaleString('pt-BR', { maximumFractionDigits: 1 })} m`
             : ''}
         </span>

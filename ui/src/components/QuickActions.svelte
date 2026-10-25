@@ -41,13 +41,13 @@
   {#if settings.aiEnabled}
     <button
       class="act follow"
-      class:on={autopilot.follow}
-      disabled={!flying && !autopilot.follow}
+      class:on={autopilot.follow || autopilot.selecting}
+      disabled={!drone.videoOn && !autopilot.follow}
       onclick={toggleFollow}
-      aria-label={autopilot.follow ? 'Parar de seguir' : 'Seguir pessoa'}
+      aria-label={autopilot.follow ? 'Parar de seguir' : autopilot.selecting ? 'Cancelar a escolha' : 'Seguir'}
     >
-      <Icon name="person-standing" size={18} />
-      <span>Seguir</span>
+      <Icon name="scan-eye" size={18} />
+      <span>{autopilot.follow ? 'Parar' : autopilot.selecting ? 'Cancelar' : 'Seguir'}</span>
     </button>
   {/if}
 </div>

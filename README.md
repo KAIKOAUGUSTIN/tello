@@ -122,21 +122,24 @@ Os itens marcados com "modo App" dependem do protocolo do app oficial: conecte e
 
 ### IA (experimental)
 
-Em **Configurações → IA**, o app reconhece pessoas no vídeo com o detector de pose do [MediaPipe](https://ai.google.dev/edge/mediapipe/solutions/vision/pose_landmarker), que marca 33 pontos do corpo. Vem desligada.
+Em **Configurações → IA**, o app reconhece pessoas, carros e outras coisas no vídeo com o detector de objetos do [MediaPipe](https://ai.google.dev/edge/mediapipe/solutions/vision/object_detector) (modelo EfficientDet-Lite0) e segue o que você escolher. Vem desligada.
 
 - **Tudo no aparelho.** O motor e o modelo vêm dentro do app, e a análise roda num worker, sem travar a interface. Nada precisa de internet (no Wi-Fi do drone ela nem existe). O MediaPipe tenta enviar métricas de uso ao Google; o app bloqueia esse envio e qualquer outro acesso à rede a partir da IA.
-- **Desempenho.** Até 15 análises por segundo, numa cópia do quadro reduzida a 480×360. O app tenta a GPU e passa para a CPU se ela falhar ou for lenta (sem placa de vídeo, a GPU é emulada e fica umas dez vezes mais lenta). O status aparece nas configurações, por exemplo "Pronta · CPU · 11 análises/s · 54 ms".
-- **Limites do modelo.** Funciona melhor com uma pessoa por vez, a até uns 4 m, com boa luz e a cabeça visível. Por causa do atraso do vídeo (200 a 300 ms), só serve para movimentos lentos.
-- **Tamanho.** O motor e o modelo somam uns 19 MB no app (9 MB comprimidos). O APK universal do Android leva uma cópia do app para cada tipo de processador, então lá eles pesam três vezes.
+- **Desempenho.** Um rastreador visual (filtro de correlação MOSSE, feito no app) acompanha o alvo em todo quadro, até 30 por segundo, em poucos milissegundos. O detector roda de tempos em tempos para corrigir o tamanho e a deriva, numa cópia do quadro reduzida a 480 px de largura. O app tenta a GPU e passa para a CPU se ela falhar ou for lenta (sem placa de vídeo, a GPU é emulada e fica umas dez vezes mais lenta). O status aparece nas configurações, por exemplo "Pronta · CPU · 18 análises/s · 5 ms".
+- **Limites do modelo.** O detector conhece pessoa, bicicleta, carro, moto, ônibus, caminhão, barco, cachorro, gato, cavalo e bola. Qualquer outra coisa pode ser marcada à mão, mas aí só o rastreador visual a acompanha, e ele se perde com mudanças grandes de aparência ou se o alvo ficar tampado por muito tempo. Funciona melhor com boa luz e o alvo inteiro na imagem (uma pessoa a uns 2 a 4 m).
+- **Tamanho.** O motor e o modelo somam uns 18 MB no app (7 MB comprimidos). O APK universal do Android leva uma cópia do app para cada tipo de processador, então lá eles pesam três vezes.
 
-#### Seguir pessoa
+#### Seguir
 
-Com o drone no ar, aperte **F** ou o botão **Seguir pessoa** (barra lateral; no celular, **Seguir** nos botões rápidos). O app trava a pessoa maior perto do centro da imagem e passa a girar para mantê-la no meio e a avançar ou recuar para manter a distância do momento em que você ligou. A altura continua com você.
+Aperte **F** ou o botão **Seguir** (barra lateral; no celular, nos botões rápidos). O que dá para seguir aparece em caixas cinza, com o nome: toque numa delas, ou arraste de um canto ao outro em volta do que quiser. Se o detector reconhecer o que está dentro da área, usa o nome dele; senão, vira "Objeto". **F** de novo cancela.
 
-- **Para ligar:** IA pronta, vídeo ligado, pelo menos 6 análises por segundo e uma pessoa no centro, entre uns 1,5 e 4 m. Se faltar algo, o app diz o quê.
-- **Devagar de propósito.** A IA usa no máximo 35% do giro e 30% do avanço, com mudanças suaves, e soma esses limites aos do app (modo iniciante, altura máxima). No modo rápido do drone, tudo cai pela metade. Sem os quadris na imagem, o drone só pode recuar.
-- **Na dúvida, paira.** Se a pessoa some ou as análises atrasam, o drone fica parado e o aviso "Pessoa perdida: pairando" aparece. Com outra pessoa na imagem, a escolhida continua a mesma (as outras ficam apagadas no esqueleto).
-- **Desliga sozinho**, com aviso e o motivo: qualquer toque nos controles (teclado, controle, sticks na tela), Espaço, pousar ou emergência, drone no chão, conexão ou sinal perdidos, vídeo desligado, janela sem foco ou app em segundo plano, pessoa sumida por 15 s ou análises lentas por 3 s. Cada liga e desliga fica registrado na caixa-preta.
+No chão, o alvo fica travado e a caixa acompanha, para você conferir antes de decolar ("Alvo travado: Carro · decole para seguir"). No ar, o drone gira para manter o alvo no meio da imagem e avança ou recua para manter a distância do momento em que começou a seguir. A altura continua com você.
+
+- **Para ligar:** IA pronta, drone conectado e vídeo ligado. Se faltar algo, o app diz o quê.
+- **Rápido, mas com limite.** O controle compensa o atraso do vídeo (200 a 300 ms), mirando onde o alvo deve estar, e não onde ele aparece. A IA usa no máximo 60% do giro, 35% do avanço e 40% do recuo, e soma esses limites aos do app (modo iniciante, altura máxima). No modo rápido do drone, tudo cai pela metade. Se o alvo encosta na borda de baixo da imagem (perto demais), o drone só pode recuar.
+- **Carro, só devagar.** O Tello chega a uns 8 m/s no modo rápido e o Wi-Fi alcança uns 100 m: dá para seguir um carro andando devagar num estacionamento vazio, não na rua.
+- **Na dúvida, paira.** Se o alvo some, o drone fica parado e aparece "Alvo perdido (Pessoa): pairando". Se ele reaparece perto de onde sumiu e com o mesmo tamanho, o seguir continua sozinho.
+- **Desliga sozinho**, com aviso e o motivo: qualquer toque nos controles (teclado, controle, sticks na tela), Espaço, pousar ou emergência, drone no chão, conexão ou sinal perdidos, vídeo desligado, janela sem foco ou app em segundo plano, alvo sumido por 15 s ou menos de 10 análises por segundo durante 3 s. Cada liga e desliga fica registrado na caixa-preta.
 
 ### Onde ficam os arquivos
 
@@ -256,7 +259,7 @@ scripts/release     versão automática e changelog
 
 ### Dependências
 
-O que é o coração do projeto é feito à mão: os protocolos do Tello, CRCs, montagem do vídeo, parser de SPS e o gravador MP4. O que é infraestrutura grande vem pronto: decodificação de vídeo (WebCodecs, do próprio sistema), controle (Gamepad API), janela e instalador (Tauri), interface (Svelte), serialização (serde) e detecção de pose para a IA (MediaPipe).
+O que é o coração do projeto é feito à mão: os protocolos do Tello, CRCs, montagem do vídeo, parser de SPS, o gravador MP4 e o rastreador visual da IA. O que é infraestrutura grande vem pronto: decodificação de vídeo (WebCodecs, do próprio sistema), controle (Gamepad API), janela e instalador (Tauri), interface (Svelte), serialização (serde) e detecção de objetos para a IA (MediaPipe).
 
 ### Protocolos
 
@@ -270,4 +273,4 @@ O que é o coração do projeto é feito à mão: os protocolos do Tello, CRCs, 
 
 ## Licença
 
-GPL-3.0. Ícones do [Lucide](https://lucide.dev) (licença ISC). Motor e modelo de pose do [MediaPipe](https://github.com/google-ai-edge/mediapipe) (licença Apache-2.0, ver `ui/src/ai/LICENSE-mediapipe.txt`).
+GPL-3.0. Ícones do [Lucide](https://lucide.dev) (licença ISC). Motor do [MediaPipe](https://github.com/google-ai-edge/mediapipe) e modelo EfficientDet-Lite0 (licença Apache-2.0, ver `ui/src/ai/LICENSE-mediapipe.txt` e `ui/src/ai/models/README.md`).

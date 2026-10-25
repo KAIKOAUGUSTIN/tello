@@ -1,14 +1,18 @@
-# Modelo de pose
+# Modelos da IA
 
-`pose_landmarker_lite.task`: MediaPipe Pose Landmarker (lite, float16), versão 1.
+Os arquivos ficam no repositório para o build funcionar sem internet.
 
-- Origem: <https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/1/pose_landmarker_lite.task>
-- SHA-256: `59929e1d1ee95287735ddd833b19cf4ac46d29bc7afddbbf6753c459690d574a`
-- Licença: Apache-2.0 (ver `../LICENSE-mediapipe.txt`)
-- Ficha técnica: [Model Card BlazePose GHUM 3D](https://storage.googleapis.com/mediapipe-assets/Model%20Card%20BlazePose%20GHUM%203D.pdf)
+## Detector de objetos
 
-O arquivo fica no repositório para o build funcionar sem internet. Para conferir:
+`efficientdet_lite0.tflite`: MediaPipe Object Detector, EfficientDet-Lite0 (int8, entrada 320×320, 80 classes do COCO), versão 1.
+
+- Origem: <https://storage.googleapis.com/mediapipe-models/object_detector/efficientdet_lite0/int8/1/efficientdet_lite0.tflite>
+- SHA-256: `0720bf247bd76e6594ea28fa9c6f7c5242be774818997dbbeffc4da460c723bb`
+- Licença: Apache-2.0 (EfficientDet, [google/automl](https://github.com/google/automl); ver `../LICENSE-mediapipe.txt`)
+- Documentação: <https://ai.google.dev/edge/mediapipe/solutions/vision/object_detector>
+
+Para conferir:
 
 ```sh
-sha256sum ui/src/ai/models/pose_landmarker_lite.task
+sha256sum ui/src/ai/models/*.tflite
 ```

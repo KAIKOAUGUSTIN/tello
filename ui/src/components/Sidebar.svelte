@@ -94,13 +94,13 @@
     {#if settings.aiEnabled}
       <button
         class="btn"
-        class:on={autopilot.follow}
-        disabled={!flying && !autopilot.follow}
+        class:on={autopilot.follow || autopilot.selecting}
+        disabled={!drone.videoOn && !autopilot.follow}
         onclick={toggleFollow}
-        title="Segue a pessoa no centro da imagem (F). Qualquer toque nos controles devolve o comando."
+        title="Escolha uma pessoa, um carro ou qualquer coisa na imagem para o drone seguir (F). Qualquer toque nos controles devolve o comando."
       >
-        <Icon name="person-standing" size={16} />
-        {autopilot.follow ? 'Parar de seguir' : 'Seguir pessoa'}
+        <Icon name="scan-eye" size={16} />
+        {autopilot.follow ? 'Parar de seguir' : autopilot.selecting ? 'Cancelar' : 'Seguir'}
       </button>
     {/if}
   </section>

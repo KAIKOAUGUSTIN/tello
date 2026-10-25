@@ -58,7 +58,7 @@
     const on = e.currentTarget.checked;
     if (on && !settings.aiAcknowledged) {
       const ok = confirm(
-        'A IA é experimental: ela reconhece pessoas no vídeo, no próprio aparelho e sem internet. Ela pode errar. ' +
+        'A IA é experimental: ela reconhece e segue pessoas, carros e outras coisas no vídeo, no próprio aparelho e sem internet. Ela pode errar. ' +
           'Mantenha sempre o controle e, se algo estranho acontecer, pare o drone (pairar) ou use a emergência. Continuar?',
       );
       if (!ok) return void (e.currentTarget.checked = false);
@@ -200,17 +200,16 @@
       <section>
         <h3 class="label"><Icon name="scan-eye" size={14} /> IA <span class="tag">Experimental</span></h3>
         <label class="row">
-          <span>Ativar IA <small>reconhece pessoas no vídeo, no próprio aparelho e sem internet</small></span>
+          <span>Ativar IA <small>reconhece e segue pessoas, carros e outras coisas no vídeo, no próprio aparelho e sem internet</small></span>
           <input type="checkbox" checked={settings.aiEnabled} onchange={toggleAi} />
         </label>
         {#if settings.aiEnabled}
           <span class="ai-status" class:ready={ai.status === 'ready'} class:failed={ai.status === 'error'}>{aiStatus}</span>
-          <label class="row">
-            <span>Mostrar o esqueleto sobre o vídeo</span>
-            <input type="checkbox" bind:checked={settings.aiOverlay} onchange={changed} />
-          </label>
         {/if}
-        <span class="muted">Funciona melhor com uma pessoa por vez, a até uns 4 m, com boa luz e a cabeça visível.</span>
+        <span class="muted">
+          Toque em Seguir (F) e escolha uma caixa cinza, ou arraste em volta de qualquer coisa. Funciona melhor com boa
+          luz e alvos que se movem devagar.
+        </span>
       </section>
 
       {#if drone.caps?.imu_calibration}
@@ -283,7 +282,7 @@
               <dt>L</dt><dd>Pousar</dd>
               <dt>Espaço</dt><dd>Pairar</dd>
               <dt>P · R</dt><dd>Foto · gravar vídeo</dd>
-              {#if settings.aiEnabled}<dt>F</dt><dd>Seguir pessoa (IA)</dd>{/if}
+              {#if settings.aiEnabled}<dt>F</dt><dd>Seguir (IA): escolher o alvo, ou parar</dd>{/if}
               <dt>Esc Esc</dt><dd>Emergência</dd>
             </dl>
           {/if}
