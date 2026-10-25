@@ -1,15 +1,12 @@
-// Combina as fontes de entrada (mouse, teclado, controle) em um único comando.
-// A fonte que se mexeu por último assume; sem foco na janela, tudo vai a zero.
+// Combina as fontes de entrada (mouse, teclado, controle e IA) em um único comando.
+// A fonte manual que se mexeu por último assume; a IA só comanda com todas as
+// manuais no centro. Sem foco na janela, tudo vai a zero.
 
 import { NEUTRAL, type Sticks } from '../lib/types';
 import { isNeutral } from './mapping';
+import { pick, type SourceId, type SourceState } from './mix';
 
-export type SourceId = 'mouse' | 'keyboard' | 'gamepad';
-
-interface SourceState {
-  sticks: Sticks;
-  activeAt: number;
-}
+export type { SourceId };
 
 export const input = $state({
   source: null as SourceId | null,
@@ -19,20 +16,33 @@ export const input = $state({
 });
 
 const sources = new Map<SourceId, SourceState>();
+const manualListeners = new Set<(id: SourceId) => void>();
 
 export function report(id: SourceId, sticks: Sticks): void {
+  const now = performance.now();
   const prev = sources.get(id);
   const active = !isNeutral(sticks);
-  sources.set(id, { sticks, activeAt: active ? performance.now() : (prev?.activeAt ?? 0) });
-  if (active) input.source = id;
+  sources.set(id, { sticks, activeAt: active ? now : (prev?.activeAt ?? 0), at: now });
+  if (id === 'ai') {
+    if (!active && input.source === 'ai') input.source = null;
+    return;
+  }
+  if (active) {
+    input.source = id;
+    manualListeners.forEach((cb) => cb(id));
+  }
+}
+
+/** Avisa quando uma fonte manual sai do centro (a IA larga o controle). */
+export function onManual(cb: (id: SourceId) => void): () => void {
+  manualListeners.add(cb);
+  return () => manualListeners.delete(cb);
 }
 
 function mix(): Sticks {
-  let best: SourceState | null = null;
-  for (const s of sources.values()) {
-    if (!isNeutral(s.sticks) && (!best || s.activeAt > best.activeAt)) best = s;
-  }
-  return best ? best.sticks : NEUTRAL;
+  const id = pick(sources, performance.now());
+  if (id === 'ai') input.source = 'ai';
+  return id ? sources.get(id)!.sticks : NEUTRAL;
 }
 
 const SEND_INTERVAL_MS = 33;

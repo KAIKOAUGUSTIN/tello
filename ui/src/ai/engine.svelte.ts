@@ -16,6 +16,8 @@ export const ai = $state({
   /** Duração da última análise. */
   ms: 0,
   poses: [] as Pose[],
+  /** Largura dividida pela altura do quadro analisado. */
+  aspect: 4 / 3,
   /** `performance.now()` do último resultado. */
   at: 0,
   error: null as string | null,
@@ -86,11 +88,13 @@ export function analyzeFrame(frame: VideoFrame): void {
   const now = performance.now();
   if (now - lastSent < 1000 / MAX_HZ) return;
   lastSent = now;
+  const aspect = frame.displayWidth / frame.displayHeight;
+  if (ai.aspect !== aspect) ai.aspect = aspect;
   if (mock) return finish(mockScene(now), 4 + Math.random() * 3);
   if (!worker) return;
   busy = true;
   const copy = frame.clone();
-  const height = Math.round((ANALYSIS_WIDTH * frame.displayHeight) / frame.displayWidth);
+  const height = Math.round(ANALYSIS_WIDTH / aspect);
   createImageBitmap(copy, { resizeWidth: ANALYSIS_WIDTH, resizeHeight: height, resizeQuality: 'low' })
     .then((bitmap) => {
       if (!worker) {

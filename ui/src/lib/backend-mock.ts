@@ -312,6 +312,10 @@ export class MockBackend implements Backend {
 
   async openReport(_path: string): Promise<void> {}
 
+  async logNote(text: string): Promise<void> {
+    console.info(`[caixa-preta] ui: ${text}`);
+  }
+
   /** Uma posição a cada 2 s, como alguém girando o drone com calma. */
   private mockCalibration(): void {
     this.events.emit({ type: 'calibration', steps: 0, progress: 0, state: 'running' });

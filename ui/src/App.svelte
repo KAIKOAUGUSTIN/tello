@@ -23,6 +23,7 @@
   import { startGamepad } from './input/gamepad';
   import { startKeyboard, type Shortcut } from './input/keyboard';
   import { startMixer } from './input/mixer.svelte';
+  import { toggleFollow } from './ai/autopilot.svelte';
   import { startAi, stopAi } from './ai/engine.svelte';
 
   let settingsOpen = $state(false);
@@ -37,6 +38,7 @@
     if (s === 'photo') photo();
     if (s === 'record') void toggleRecording();
     if (s === 'emergency') emergency();
+    if (s === 'follow' && settings.aiEnabled) toggleFollow();
   }
 
   onMount(() => {

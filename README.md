@@ -129,6 +129,15 @@ Em **Configurações → IA**, o app reconhece pessoas no vídeo com o detector 
 - **Limites do modelo.** Funciona melhor com uma pessoa por vez, a até uns 4 m, com boa luz e a cabeça visível. Por causa do atraso do vídeo (200 a 300 ms), só serve para movimentos lentos.
 - **Tamanho.** O motor e o modelo somam uns 19 MB no app (9 MB comprimidos). O APK universal do Android leva uma cópia do app para cada tipo de processador, então lá eles pesam três vezes.
 
+#### Seguir pessoa
+
+Com o drone no ar, aperte **F** ou o botão **Seguir pessoa** (barra lateral; no celular, **Seguir** nos botões rápidos). O app trava a pessoa maior perto do centro da imagem e passa a girar para mantê-la no meio e a avançar ou recuar para manter a distância do momento em que você ligou. A altura continua com você.
+
+- **Para ligar:** IA pronta, vídeo ligado, pelo menos 6 análises por segundo e uma pessoa no centro, entre uns 1,5 e 4 m. Se faltar algo, o app diz o quê.
+- **Devagar de propósito.** A IA usa no máximo 35% do giro e 30% do avanço, com mudanças suaves, e soma esses limites aos do app (modo iniciante, altura máxima). No modo rápido do drone, tudo cai pela metade. Sem os quadris na imagem, o drone só pode recuar.
+- **Na dúvida, paira.** Se a pessoa some ou as análises atrasam, o drone fica parado e o aviso "Pessoa perdida: pairando" aparece. Com outra pessoa na imagem, a escolhida continua a mesma (as outras ficam apagadas no esqueleto).
+- **Desliga sozinho**, com aviso e o motivo: qualquer toque nos controles (teclado, controle, sticks na tela), Espaço, pousar ou emergência, drone no chão, conexão ou sinal perdidos, vídeo desligado, janela sem foco ou app em segundo plano, pessoa sumida por 15 s ou análises lentas por 3 s. Cada liga e desliga fica registrado na caixa-preta.
+
 ### Onde ficam os arquivos
 
 | Tipo | Windows, macOS e Linux | Android | iOS |

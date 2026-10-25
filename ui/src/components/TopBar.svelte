@@ -30,16 +30,24 @@
   );
   const batteryLevel = $derived(battery === null ? '' : battery <= 15 ? 'crit' : battery <= 30 ? 'low' : 'good');
   const sourceIcon: IconName = $derived(
-    input.source === 'gamepad' ? 'gamepad-2' : input.source === 'keyboard' ? 'keyboard' : 'mouse',
+    input.source === 'ai'
+      ? 'scan-eye'
+      : input.source === 'gamepad'
+        ? 'gamepad-2'
+        : input.source === 'keyboard'
+          ? 'keyboard'
+          : 'mouse',
   );
   const sourceLabel = $derived(
-    input.source === 'gamepad'
-      ? (input.gamepad ?? 'Controle')
-      : input.source === 'keyboard'
-        ? 'Teclado'
-        : input.gamepad
-          ? `Mouse · ${input.gamepad}`
-          : 'Mouse',
+    input.source === 'ai'
+      ? 'IA'
+      : input.source === 'gamepad'
+        ? (input.gamepad ?? 'Controle')
+        : input.source === 'keyboard'
+          ? 'Teclado'
+          : input.gamepad
+            ? `Mouse · ${input.gamepad}`
+            : 'Mouse',
   );
   const protocolLabel = $derived(drone.caps?.protocol === 'app' ? 'App' : `SDK ${drone.caps?.sdk_version ?? ''}`);
 </script>

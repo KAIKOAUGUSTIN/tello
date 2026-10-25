@@ -41,6 +41,8 @@ export interface Backend {
   openFolder(kind: FolderKind): Promise<void>;
   /** Abre o relatório de um voo (HTML da pasta de logs) no navegador. */
   openReport(path: string): Promise<void>;
+  /** Anota um evento da interface na caixa-preta. */
+  logNote(text: string): Promise<void>;
   landAndQuit(): Promise<void>;
 }
 

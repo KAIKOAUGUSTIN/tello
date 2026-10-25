@@ -61,3 +61,39 @@ export const BONES: readonly (readonly [number, number])[] = [
 
 /** Pontos marcados com um círculo no esqueleto. */
 export const JOINTS: readonly number[] = [LM.nose, ...new Set(BONES.flat())];
+
+/** Largura dos ombros em relação ao tronco, para estimar o tronco quando os quadris não aparecem. */
+const SHOULDERS_PER_TORSO = 0.6;
+
+export interface Torso {
+  /** Centro do tronco (0..1). */
+  cx: number;
+  cy: number;
+  /** Do meio dos ombros ao meio dos quadris, em fração da altura da imagem. */
+  len: number;
+  /** Os quadris aparecem; sem eles, `len` é uma estimativa pela largura dos ombros. */
+  hips: boolean;
+}
+
+/** Tronco da pessoa; `aspect` é a largura dividida pela altura da imagem. */
+export function torso(p: Pose, aspect = 4 / 3): Torso | null {
+  if (!visible(p, LM.leftShoulder) || !visible(p, LM.rightShoulder)) return null;
+  const ls = point(p, LM.leftShoulder);
+  const rs = point(p, LM.rightShoulder);
+  const sx = (ls.x + rs.x) / 2;
+  const sy = (ls.y + rs.y) / 2;
+  if (visible(p, LM.leftHip) && visible(p, LM.rightHip)) {
+    const lh = point(p, LM.leftHip);
+    const rh = point(p, LM.rightHip);
+    const hx = (lh.x + rh.x) / 2;
+    const hy = (lh.y + rh.y) / 2;
+    return { cx: (sx + hx) / 2, cy: (sy + hy) / 2, len: Math.hypot((hx - sx) * aspect, hy - sy), hips: true };
+  }
+  const len = Math.hypot((ls.x - rs.x) * aspect, ls.y - rs.y) / SHOULDERS_PER_TORSO;
+  return { cx: sx, cy: sy + len / 2, len, hips: false };
+}
+
+/** Distância aproximada até a pessoa, para um tronco de ~0,5 m e a câmera do Tello (~56° na vertical). */
+export function distanceM(len: number): number {
+  return 0.47 / len;
+}

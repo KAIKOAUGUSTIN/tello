@@ -283,6 +283,7 @@
               <dt>L</dt><dd>Pousar</dd>
               <dt>Espaço</dt><dd>Pairar</dd>
               <dt>P · R</dt><dd>Foto · gravar vídeo</dd>
+              {#if settings.aiEnabled}<dt>F</dt><dd>Seguir pessoa (IA)</dd>{/if}
               <dt>Esc Esc</dt><dd>Emergência</dd>
             </dl>
           {/if}

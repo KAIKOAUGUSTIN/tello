@@ -8,6 +8,7 @@
   import { safetyFromSettings, settings } from '../lib/settings.svelte';
   import { input } from '../input/mixer.svelte';
   import type { PlayerStats } from '../video/player';
+  import { autopilot } from '../ai/autopilot.svelte';
   import Icon from './Icon.svelte';
 
   let { stats }: { stats: PlayerStats | null } = $props();
@@ -55,6 +56,17 @@
       </span>
     {:else if drone.linkLost}
       <span class="banner danger"><Icon name="wifi-off" size={14} /> Sinal do drone perdido</span>
+    {/if}
+    {#if autopilot.follow}
+      {#if autopilot.lost}
+        <span class="banner warn"><Icon name="person-standing" size={14} /> Pessoa perdida: pairando</span>
+      {:else}
+        <span class="banner info">
+          <Icon name="person-standing" size={14} /> Seguindo{autopilot.distanceM
+            ? ` · ~${autopilot.distanceM.toLocaleString('pt-BR', { maximumFractionDigits: 1 })} m`
+            : ''}
+        </span>
+      {/if}
     {/if}
     {#each drone.conditions as c (c)}
       <span class="banner warn"><Icon name={CONDITIONS[c].icon} size={14} /> {CONDITIONS[c].label}</span>

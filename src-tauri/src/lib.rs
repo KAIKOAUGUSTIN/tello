@@ -153,6 +153,12 @@ fn set_video_channel(state: State<'_, AppState>, channel: Channel<InvokeResponse
     *state.video.lock().unwrap() = Some(channel);
 }
 
+/// Anota na caixa-preta um evento da interface (ex.: a IA assumiu ou largou o controle).
+#[tauri::command]
+fn log_note(state: State<'_, AppState>, text: String) {
+    state.blackbox.info(tello_core::Channel::Core, format!("ui: {text}"));
+}
+
 #[tauri::command]
 fn log_snapshot(state: State<'_, AppState>) -> Vec<Entry> {
     state.blackbox.snapshot()
@@ -373,6 +379,7 @@ pub fn run() {
             set_safety,
             set_video_policy,
             set_video_channel,
+            log_note,
             log_snapshot,
             export_log,
             save_snapshot,
